@@ -1,0 +1,61 @@
+name: Release devcontainer feature
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - devcontainer-feature.json
+      - install.sh
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # devcontainers/action expects: src/<feature-id>/devcontainer-feature.json
+      # Since this repo keeps everything at root, we build the layout at publish time.
+      #
+      # Only the manifest + install.sh are published. Nothing else is vendored:
+      # install.sh generates a `harnessai` launcher that fetches cli.sh (and
+      # the harness.py/content/wikictl it needs) from this repo at runtime,
+      # pinned to the feature version. This removes the packaging step that
+      # previously had to be kept in sync by hand (and once silently dropped
+      # the vendored wikictl source).
+      - name: Prepare feature structure
+        run: |
+          mkdir -p src/harness-ai
+          cp devcontainer-feature.json install.sh src/harness-ai/
+
+      - name: Publish feature to GHCR
+        uses: devcontainers/action@v1.4.3
+        with:
+          publish-features: 'true'
+          base-path-to-features: './src'
+          generate-docs: 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # harnessai pins its runtime fetch (cli.sh + harness-ai assets) to a
+      # git ref equal to the feature version, so that ref must exist as a tag
+      # or the pinned curl/clone 404s.
+      - name: Read feature version
+        id: version
+        run: echo "version=$(jq -r .version devcontainer-feature.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Tag release ref
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if git rev-parse "refs/tags/${VERSION}" >/dev/null 2>&1; then
+            echo "Tag ${VERSION} already exists, skipping"
+          else
+            git tag "${VERSION}"
+            git push origin "${VERSION}"
+          fi

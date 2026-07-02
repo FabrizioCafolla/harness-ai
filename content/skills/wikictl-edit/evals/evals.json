@@ -1,0 +1,47 @@
+[
+  {
+    "prompt": "Update the description of the 'api-rate-limiting' entry to mention we increased the limit to 200 requests per minute",
+    "expected_output": "The agent should edit only the description field of the existing api-rate-limiting entry.",
+    "assertions": [
+      "Agent reads the existing entry before editing",
+      "Agent updates only the description, preserving other fields",
+      "The updated description mentions 200 requests per minute"
+    ]
+  },
+  {
+    "prompt": "Replace the entire content of the 'deployment-strategy' entry with our new blue-green deployment approach",
+    "expected_output": "The agent should perform a full replacement of the entry body with the new blue-green deployment content.",
+    "assertions": [
+      "Agent replaces the full body content of the entry",
+      "The new content describes blue-green deployment",
+      "Agent confirms the update was successful"
+    ]
+  },
+  {
+    "prompt": "Update the note about logging conventions, or create it if it doesn't exist yet",
+    "expected_output": "The agent should first check if the entry exists, then edit if found or create if not.",
+    "assertions": [
+      "Agent checks for existence of the logging conventions entry",
+      "If found, agent edits the existing entry",
+      "If not found, agent creates a new entry instead"
+    ]
+  },
+  {
+    "prompt": "Add a section about error handling to the existing 'api-design-guidelines' entry, keep everything else",
+    "expected_output": "The agent should append the error handling section to the existing body without removing current content.",
+    "assertions": [
+      "Agent reads the current entry body first",
+      "Agent preserves all existing content",
+      "Agent appends the new error handling section to the body"
+    ]
+  },
+  {
+    "prompt": "Change the tags on 'database-migration' from 'backend' to 'backend' and 'infrastructure'",
+    "expected_output": "The agent should update the tags on the entry, adding 'infrastructure' while keeping 'backend'.",
+    "assertions": [
+      "Agent modifies the tags of the existing entry",
+      "The updated entry has both 'backend' and 'infrastructure' tags",
+      "Agent does not modify the entry body or description"
+    ]
+  }
+]

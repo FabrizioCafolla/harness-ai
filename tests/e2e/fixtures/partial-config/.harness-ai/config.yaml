@@ -1,0 +1,5 @@
+# partial-config fixture: only one key set. Everything else must fall
+# through to the CLI's built-in defaults, proving per-key merge rather than
+# "config file present -> template wins wholesale".
+install:
+  wikictl: true

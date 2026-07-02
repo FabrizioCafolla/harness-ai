@@ -1,0 +1,17 @@
+{
+  "allowedTools": [],
+  "deniedTools": [],
+  "allowedPaths": [],
+  "deniedPaths": [
+    "**/.env",
+    "**/.env.*",
+    "**/secrets/**",
+    "**/.ssh/**",
+    "**/.gnupg/**",
+    "**/.aws/credentials"
+  ],
+  "allowedUrls": [],
+  "deniedUrls": [],
+  "trustedDirectories": [],
+  "autoCompaction": true
+}

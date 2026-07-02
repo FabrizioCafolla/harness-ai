@@ -1,0 +1,6 @@
+# malformed-config fixture: deliberately invalid YAML (unclosed mapping
+# under a sequence item). cli.sh must die() with a clear "check it is valid
+# YAML" error and must not proceed to scaffold anything.
+tools: [claude
+install:
+  rtk: true

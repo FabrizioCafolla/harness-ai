@@ -1,0 +1,38 @@
+copilot:
+  base_dir: .github
+  agents:
+    dir: agents
+    suffix: .agent.md
+  skills:
+    dir: skills
+    filename: SKILL.md
+  extra_files:
+    settings:
+      - source: config/copilot/config.json
+        dest: .copilot/config.json
+        ignore: false
+  hooks:
+    source: config/copilot/hooks.json
+    dest: .github/hooks/hooks.json
+
+claude:
+  base_dir: .claude
+  agents:
+    dir: agents
+    suffix: .md
+  skills:
+    dir: skills
+    filename: SKILL.md
+  extra_files:
+    settings:
+      - source: config/claude/settings.json
+        dest: .claude/settings.json
+        ignore: false
+      - source: config/claude/settings.local.json
+        dest: .claude/settings.local.json
+        ignore: true
+      - source: config/claude/statusline.sh
+        dest: .claude/statusline.sh
+        ignore: false
+  hooks:
+    source: config/claude/hooks.json

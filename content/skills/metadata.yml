@@ -1,0 +1,368 @@
+default:
+  copilot:
+    license: MIT
+    metadata:
+      author: Fabrizio Cafolla
+      version: "1.0"
+  claude:
+    license: MIT
+    metadata:
+      author: Fabrizio Cafolla
+      version: "1.0"
+
+skills:
+  agent-creator:
+    category: meta
+    subcategory: skills-and-agents
+    copilot:
+      name: agent-creator
+      description: >-
+        Guide for creating effective custom AI agents. Use when designing a new
+        agent (or updating an existing one) that specializes a general-purpose
+        AI assistant with domain expertise, workflows, tool configurations, and
+        governance guardrails.
+    claude:
+      name: agent-creator
+      description: >-
+        Guide for creating effective custom AI agents. Use when designing a new
+        agent (or updating an existing one) that specializes a general-purpose
+        AI assistant with domain expertise, workflows, tool configurations, and
+        governance guardrails.
+
+  skill-creator:
+    category: meta
+    subcategory: skills-and-agents
+    copilot:
+      name: skill-creator
+      description: >-
+        Guide for creating effective AI skills. Use when creating a new skill
+        (or updating an existing one) that extends an AI assistant's capabilities
+        with specialized knowledge, multi-step workflows, or tool integrations.
+    claude:
+      name: skill-creator
+      description: >-
+        Guide for creating effective AI skills. Use when creating a new skill
+        (or updating an existing one) that extends an AI assistant's capabilities
+        with specialized knowledge, multi-step workflows, or tool integrations.
+      metadata:
+        ref: "https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md?plain=1"
+
+  developer-diagnosing-bugs:
+    category: engineering
+    subcategory: build-and-quality
+    copilot:
+      name: developer-diagnosing-bugs
+      description: >-
+        Structured local debugging loop: reproduce, minimize, hypothesize,
+        instrument, fix, regression-test. Use when tracking down a bug,
+        investigating a failure whose cause isn't obvious, or when a few
+        guess-and-check attempts haven't found the root cause yet.
+    claude:
+      name: developer-diagnosing-bugs
+      description: >-
+        Structured local debugging loop: reproduce, minimize, hypothesize,
+        instrument, fix, regression-test. Use when tracking down a bug,
+        investigating a failure whose cause isn't obvious, or when a few
+        guess-and-check attempts haven't found the root cause yet.
+
+  developer-docker:
+    category: engineering
+    subcategory: build-and-quality
+    copilot:
+      name: developer-docker
+      description: >-
+        Docker and container best practices. Use when writing Dockerfiles,
+        docker-compose files, optimizing images, setting up multi-stage builds,
+        or designing containerized application architectures.
+    claude:
+      name: developer-docker
+      description: >-
+        Docker and container best practices. Use when writing Dockerfiles,
+        docker-compose files, optimizing images, setting up multi-stage builds,
+        or designing containerized application architectures.
+
+  developer-framework-astro:
+    category: engineering
+    subcategory: build-and-quality
+    copilot:
+      name: developer-framework-astro
+      description: >-
+        Astro framework conventions and patterns. Use when building Astro
+        projects components, content collections, SSR/SSG configuration,
+        integrations, islands architecture, or any Astro-specific patterns.
+    claude:
+      name: developer-framework-astro
+      description: >-
+        Astro framework conventions and patterns. Use when building Astro
+        projects components, content collections, SSR/SSG configuration,
+        integrations, islands architecture, or any Astro-specific patterns.
+
+  developer-github-actions:
+    category: engineering
+    subcategory: build-and-quality
+    copilot:
+      name: developer-github-actions
+      description: >-
+        GitHub Actions best practices. Use when writing workflow YAML,
+        configuring runners, setting up caching, creating reusable workflows,
+        managing secrets, or hardening CI/CD pipelines.
+    claude:
+      name: developer-github-actions
+      description: >-
+        GitHub Actions best practices. Use when writing workflow YAML,
+        configuring runners, setting up caching, creating reusable workflows,
+        managing secrets, or hardening CI/CD pipelines.
+
+  developer-go:
+    category: engineering
+    subcategory: build-and-quality
+    copilot:
+      name: developer-go
+      description: >-
+        Go coding conventions and idiomatic patterns. Use when writing Go code,
+        designing packages, working with goroutines and channels, handling
+        errors, structuring modules, or writing Go tests.
+    claude:
+      name: developer-go
+      description: >-
+        Go coding conventions and idiomatic patterns. Use when writing Go code,
+        designing packages, working with goroutines and channels, handling
+        errors, structuring modules, or writing Go tests.
+
+  developer-javascript:
+    category: engineering
+    subcategory: build-and-quality
+    copilot:
+      name: developer-javascript
+      description: >-
+        Modern JavaScript conventions and patterns. Use when writing vanilla JS,
+        ES2025+ features, async/await patterns, DOM manipulation, Node.js
+        modules, or any JavaScript outside a typed framework.
+    claude:
+      name: developer-javascript
+      description: >-
+        Modern JavaScript conventions and patterns. Use when writing vanilla JS,
+        ES2025+ features, async/await patterns, DOM manipulation, Node.js
+        modules, or any JavaScript outside a typed framework.
+
+  developer-kubernetes:
+    category: engineering
+    subcategory: architecture-and-platform
+    copilot:
+      name: developer-kubernetes
+      description: >-
+        Kubernetes manifest writing and cluster operations. Use when writing
+        Kubernetes YAML, creating Helm charts, configuring RBAC, designing
+        operator patterns, setting resource limits, or troubleshooting with
+        kubectl.
+    claude:
+      name: developer-kubernetes
+      description: >-
+        Kubernetes manifest writing and cluster operations. Use when writing
+        Kubernetes YAML, creating Helm charts, configuring RBAC, designing
+        operator patterns, setting resource limits, or troubleshooting with
+        kubectl.
+
+  developer-microservices-and-api:
+    category: engineering
+    subcategory: architecture-and-platform
+    copilot:
+      name: developer-microservices-and-api
+      description: >-
+        Microservices architecture and API design patterns. Use when designing
+        service boundaries, writing REST or gRPC APIs, implementing GraphQL,
+        handling versioning, defining contracts, or documenting API interfaces.
+    claude:
+      name: developer-microservices-and-api
+      description: >-
+        Microservices architecture and API design patterns. Use when designing
+        service boundaries, writing REST or gRPC APIs, implementing GraphQL,
+        handling versioning, defining contracts, or documenting API interfaces.
+
+  developer-python:
+    category: engineering
+    subcategory: build-and-quality
+    copilot:
+      name: developer-python
+      description: >-
+        Python coding conventions and guidelines. Use when writing Python code,
+        structuring modules and packages, handling errors, working with type
+        hints, or setting up virtual environments and dependency management.
+    claude:
+      name: developer-python
+      description: >-
+        Python coding conventions and guidelines. Use when writing Python code,
+        structuring modules and packages, handling errors, working with type
+        hints, or setting up virtual environments and dependency management.
+
+  developer-shell:
+    category: engineering
+    subcategory: build-and-quality
+    copilot:
+      name: developer-shell
+      description: >-
+        Shell scripting best practices and conventions for bash, sh, zsh, and
+        other shells. Use when writing shell scripts, handling arguments and
+        exit codes, quoting and escaping, or making scripts portable across
+        shells.
+    claude:
+      name: developer-shell
+      description: >-
+        Shell scripting best practices and conventions for bash, sh, zsh, and
+        other shells. Use when writing shell scripts, handling arguments and
+        exit codes, quoting and escaping, or making scripts portable across
+        shells.
+
+  developer-tdd:
+    category: engineering
+    subcategory: build-and-quality
+    copilot:
+      name: developer-tdd
+      description: >-
+        Red-green-refactor discipline: writing tests first, keeping cycles
+        small, and knowing when to skip it. Use when implementing new
+        behavior test-first, deciding how to scope a test-driven change, or
+        judging whether TDD fits the task at hand.
+    claude:
+      name: developer-tdd
+      description: >-
+        Red-green-refactor discipline: writing tests first, keeping cycles
+        small, and knowing when to skip it. Use when implementing new
+        behavior test-first, deciding how to scope a test-driven change, or
+        judging whether TDD fits the task at hand.
+
+  developer-terraform:
+    category: engineering
+    subcategory: architecture-and-platform
+    copilot:
+      name: developer-terraform
+      description: >-
+        Use when working with Terraform or OpenTofu - creating modules, writing
+        tests (native test framework, Terratest), setting up CI/CD pipelines,
+        reviewing configurations, choosing between testing approaches, debugging
+        state issues, implementing security scanning (trivy, checkov), or making
+        infrastructure-as-code architecture decisions
+    claude:
+      name: developer-terraform
+      description: >-
+        Use when working with Terraform or OpenTofu - creating modules, writing
+        tests (native test framework, Terratest), setting up CI/CD pipelines,
+        reviewing configurations, choosing between testing approaches, debugging
+        state issues, implementing security scanning (trivy, checkov), or making
+        infrastructure-as-code architecture decisions
+
+  developer-typescript:
+    category: engineering
+    subcategory: build-and-quality
+    copilot:
+      name: developer-typescript
+      description: >-
+        TypeScript conventions and type system patterns. Use when writing
+        TypeScript, configuring tsconfig, designing type hierarchies, using
+        utility types, working with generics, or enforcing strict type safety.
+    claude:
+      name: developer-typescript
+      description: >-
+        TypeScript conventions and type system patterns. Use when writing
+        TypeScript, configuring tsconfig, designing type hierarchies, using
+        utility types, working with generics, or enforcing strict type safety.
+
+  caveman:
+    category: communication
+    subcategory: interaction-style
+    copilot:
+      name: caveman
+      description: >-
+        Ultra-compressed communication mode. Cuts token usage ~75% by speaking
+        like caveman while keeping full technical accuracy. Supports intensity
+        levels: lite, full (default), ultra, wenyan-lite, wenyan-full,
+        wenyan-ultra. Use when user says "caveman mode", "talk like caveman",
+        "use caveman", "less tokens", "be brief", or invokes /caveman. Also
+        auto-triggers when token efficiency is requested.
+      metadata:
+        ref: "https://raw.githubusercontent.com/JuliusBrussee/caveman/main/skills/caveman/SKILL.md"
+    claude:
+      name: caveman
+      description: >-
+        Ultra-compressed communication mode. Cuts token usage ~75% by speaking
+        like caveman while keeping full technical accuracy. Supports intensity
+        levels: lite, full (default), ultra, wenyan-lite, wenyan-full,
+        wenyan-ultra. Use when user says "caveman mode", "talk like caveman",
+        "use caveman", "less tokens", "be brief", or invokes /caveman. Also
+        auto-triggers when token efficiency is requested.
+      metadata:
+        ref: "https://raw.githubusercontent.com/JuliusBrussee/caveman/main/skills/caveman/SKILL.md"
+
+  developer-github-cli:
+    category: tools
+    subcategory: cli-and-tool-usage
+    copilot:
+      name: developer-github-cli
+      description: >-
+        GitHub CLI (gh) best practices for issues, pull requests, releases, and
+        repository operations. Use when creating issues, opening pull requests,
+        merging PRs, managing labels, running gh commands, searching GitHub,
+        interacting with GitHub Actions, or any GitHub operation from the
+        command line. Always use this skill when the user mentions gh, GitHub
+        CLI, creating a GitHub issue, or opening a pull request via CLI — even
+        if they don't explicitly say "gh".
+    claude:
+      name: developer-github-cli
+      description: >-
+        GitHub CLI (gh) best practices for issues, pull requests, releases, and
+        repository operations. Use when creating issues, opening pull requests,
+        merging PRs, managing labels, running gh commands, searching GitHub,
+        interacting with GitHub Actions, or any GitHub operation from the
+        command line. Always use this skill when the user mentions gh, GitHub
+        CLI, creating a GitHub issue, or opening a pull request via CLI — even
+        if they don't explicitly say "gh".
+
+  wikictl:
+    category: tools
+    subcategory: cli-and-tool-usage
+    copilot:
+      name: wikictl
+      description: "Bootstrap skill for the wikictl AI memory system. Load this skill to understand what wikictl is, when to use memory, and which operational skill to invoke (wikictl-read, wikictl-create, wikictl-edit). Use when the agent mentions 'memory', 'remember', 'wiki', 'wikictl', 'recall', 'what do I know about', or needs persistent knowledge across sessions."
+    claude:
+      name: wikictl
+      description: "Bootstrap skill for the wikictl AI memory system. Load this skill to understand what wikictl is, when to use memory, and which operational skill to invoke (wikictl-read, wikictl-create, wikictl-edit). Use when the agent mentions 'memory', 'remember', 'wiki', 'wikictl', 'recall', 'what do I know about', or needs persistent knowledge across sessions."
+
+  wikictl-read:
+    category: tools
+    subcategory: cli-and-tool-usage
+    copilot:
+      name: wikictl-read
+      description: "Retrieve and correlate memories from the wikictl wiki. Use when the agent needs to recall information, find context, or answer questions that might be covered by previously stored knowledge. Trigger on: 'what do I know about', 'recall', 'find in memory', 'check wiki', 'look up', or when context from past sessions would be useful."
+    claude:
+      name: wikictl-read
+      description: "Retrieve and correlate memories from the wikictl wiki. Use when the agent needs to recall information, find context, or answer questions that might be covered by previously stored knowledge. Trigger on: 'what do I know about', 'recall', 'find in memory', 'check wiki', 'look up', or when context from past sessions would be useful."
+
+  wikictl-create:
+    category: tools
+    subcategory: cli-and-tool-usage
+    copilot:
+      name: wikictl-create
+      description: "Create new memory entries in the wikictl wiki. Use when the agent encounters information worth persisting: decisions made, user preferences, project conventions, architecture choices, lessons learned. Trigger on: 'remember this', 'save this', 'store this', 'note this down', or when the agent recognizes memory-worthy information during a session."
+    claude:
+      name: wikictl-create
+      description: "Create new memory entries in the wikictl wiki. Use when the agent encounters information worth persisting: decisions made, user preferences, project conventions, architecture choices, lessons learned. Trigger on: 'remember this', 'save this', 'store this', 'note this down', or when the agent recognizes memory-worthy information during a session."
+
+  wikictl-edit:
+    category: tools
+    subcategory: cli-and-tool-usage
+    copilot:
+      name: wikictl-edit
+      description: "Edit existing memory entries in the wikictl wiki. Use when the agent has updated, corrected, or supplementary information for an existing wiki entry. Trigger on: 'update memory', 'correct this', 'add to existing', 'modify wiki entry', or when the agent discovers that stored information needs revision."
+    claude:
+      name: wikictl-edit
+      description: "Edit existing memory entries in the wikictl wiki. Use when the agent has updated, corrected, or supplementary information for an existing wiki entry. Trigger on: 'update memory', 'correct this', 'add to existing', 'modify wiki entry', or when the agent discovers that stored information needs revision."
+
+  wikictl-mcp:
+    category: tools
+    subcategory: cli-and-tool-usage
+    copilot:
+      name: wikictl-mcp
+      description: "Interact with the wikictl wiki via MCP protocol. Use when the agent has an MCP client configured and the wikictl server is running. Provides full CRUD access to wiki entries through MCP tools instead of CLI commands. Trigger on: 'use mcp', 'mcp tools', 'connect to wiki server', or when the agent detects an MCP connection to wikictl is available."
+    claude:
+      name: wikictl-mcp
+      description: "Interact with the wikictl wiki via MCP protocol. Use when the agent has an MCP client configured and the wikictl server is running. Provides full CRUD access to wiki entries through MCP tools instead of CLI commands. Trigger on: 'use mcp', 'mcp tools', 'connect to wiki server', or when the agent detects an MCP connection to wikictl is available."

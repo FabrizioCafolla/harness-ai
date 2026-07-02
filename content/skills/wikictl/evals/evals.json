@@ -1,0 +1,47 @@
+[
+  {
+    "prompt": "I need to recall what we decided about the database migration strategy",
+    "expected_output": "The agent should load the wikictl-read skill to retrieve stored knowledge about the database migration strategy.",
+    "assertions": [
+      "Agent loads the wikictl-read skill",
+      "Agent does not attempt to create or edit any entry",
+      "Agent uses a search or read operation to find relevant entries"
+    ]
+  },
+  {
+    "prompt": "Remember that we chose PostgreSQL over MySQL for the new analytics service",
+    "expected_output": "The agent should load the wikictl-create skill to store a new knowledge entry about the PostgreSQL decision.",
+    "assertions": [
+      "Agent loads the wikictl-create skill",
+      "Agent creates a new wiki entry capturing the decision",
+      "The entry content mentions PostgreSQL and the analytics service"
+    ]
+  },
+  {
+    "prompt": "Update the note about our CI/CD pipeline to include the new staging environment",
+    "expected_output": "The agent should load the wikictl-edit skill to modify the existing CI/CD pipeline entry.",
+    "assertions": [
+      "Agent loads the wikictl-edit skill",
+      "Agent identifies the existing CI/CD pipeline entry before editing",
+      "Agent adds information about the staging environment to the entry"
+    ]
+  },
+  {
+    "prompt": "What do I know about Kubernetes namespacing conventions?",
+    "expected_output": "The agent should load the wikictl-read skill to search for stored knowledge about Kubernetes namespacing.",
+    "assertions": [
+      "Agent loads the wikictl-read skill",
+      "Agent searches for entries related to Kubernetes namespacing",
+      "Agent presents found results or clearly states no entries were found"
+    ]
+  },
+  {
+    "prompt": "Save this decision: we will use Terraform workspaces for environment separation",
+    "expected_output": "The agent should load the wikictl-create skill to persist the decision as a new wiki entry.",
+    "assertions": [
+      "Agent loads the wikictl-create skill",
+      "Agent creates an entry about Terraform workspaces",
+      "The entry is tagged or categorized as a decision"
+    ]
+  }
+]

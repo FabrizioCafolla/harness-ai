@@ -1,0 +1,38 @@
+# harness-ai workspace config — single source of truth for what gets
+# installed and scaffolded. Copied to .harness-ai/config.yaml on first run
+# (copy-once); edit that copy, not this template.
+version: 1
+
+# Tools to scaffold skills/agents/hooks for: claude, copilot
+tools: [claude]
+
+# Optional CLI/MCP binaries installed via uv (or npm, for openspec)
+install:
+  rtk: true
+  headroom: true
+  wikictl: false
+  openspec: true
+  # Arbitrary extra install commands, run as `bash -c "<command>"` during
+  # `install` (skipped by `sync`). Commands must be self-idempotent — no
+  # already-installed check is done for custom entries.
+  # custom:
+  #   speckit: "uv tool install speckit-cli"
+  custom: {}
+
+# harness.py behavior flags
+scaffold:
+  createFileMCP: true
+  createFileHooks: true
+  createFileSetting: true
+  updateGitignore: true
+  installDefaults: true
+
+# Behavioral defaults injected into AGENTS.md at scaffold time (not binary
+# installs — these steer Claude's behavior from the first message of a session)
+behavior:
+  caveman: true
+
+# Optional private content repo merged on top of bundled defaults
+contentRepo:
+  url: ""
+  ref: main

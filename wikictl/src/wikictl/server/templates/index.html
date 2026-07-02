@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Index — wikictl{% endblock %}
+{% block content %}
+<style>
+    .wiki-toc { font-size: 0.88rem; line-height: 1.5; }
+    .wiki-toc details { border: none; }
+    .wiki-toc summary {
+        list-style: none;
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        color: var(--color-text-secondary);
+        padding: 0.2rem 0;
+    }
+    .wiki-toc summary::-webkit-details-marker { display: none; }
+    .wiki-toc summary:hover { color: var(--color-text); }
+    .toc-arrow {
+        flex-shrink: 0;
+        color: var(--color-text-muted);
+        transition: transform 0.15s ease;
+    }
+    .wiki-toc details[open] > summary .toc-arrow { transform: rotate(90deg); }
+    .toc-section > summary {
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: var(--color-text-muted);
+        padding: 0.5rem 0 0.2rem;
+        margin-top: 0.5rem;
+        border-top: 1px solid var(--color-border-light);
+    }
+    .toc-section:first-of-type > summary { margin-top: 0; border-top: none; }
+    .toc-folder > summary { font-weight: 500; }
+    .toc-children { padding-left: 1.1rem; }
+    .toc-entry {
+        display: block;
+        padding: 0.15rem 0;
+        color: var(--color-text-secondary);
+        text-decoration: none;
+        transition: color var(--transition);
+    }
+    .toc-entry:hover { color: var(--color-primary); }
+    .toc-entry::before {
+        content: "·";
+        color: var(--color-text-muted);
+        margin-right: 0.35rem;
+    }
+    .metadata-first-note {
+        background: var(--color-primary-subtle);
+        border: 1px solid var(--color-primary-light);
+        border-radius: var(--radius-md);
+        padding: 0.75rem 1rem;
+        margin-bottom: 1.25rem;
+        font-size: 0.85rem;
+        color: var(--color-text-secondary);
+        line-height: 1.55;
+    }
+    .metadata-first-note strong { color: var(--color-text); }
+</style>
+
+<div class="metadata-first-note">
+    <strong>Why this page shows names and descriptions, not full content:</strong>
+    wikictl is metadata-first — agents scan lightweight entries (name, description, tags)
+    before reading any body, so a wiki with 50 entries costs a few thousand tokens to scan
+    instead of tens of thousands to load in full. See the <code>wikictl</code> skill's
+    <code>references/progressive-disclosure.md</code> for the full rationale.
+</div>
+
+<div class="wiki-toc">
+{% for node in sidebar_tree recursive %}
+    {% if node.entry %}
+    <a href="{{ node.url }}" class="toc-entry">{{ node.display }}</a>
+    {% elif loop.depth0 == 0 %}
+    <details class="toc-section" open>
+        <summary>
+            <svg class="toc-arrow" viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="4,2 8,6 4,10"/>
+            </svg>
+            {{ node.display }}
+        </summary>
+        <div class="toc-children">{{ loop(node.children) }}</div>
+    </details>
+    {% else %}
+    <details class="toc-folder">
+        <summary>
+            <svg class="toc-arrow" viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="4,2 8,6 4,10"/>
+            </svg>
+            {{ node.display }}
+        </summary>
+        <div class="toc-children">{{ loop(node.children) }}</div>
+    </details>
+    {% endif %}
+{% endfor %}
+</div>
+{% endblock %}

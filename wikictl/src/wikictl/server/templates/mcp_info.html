@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}MCP Tools — wikictl{% endblock %}
+{% block content %}
+<h1>MCP Server</h1>
+<div class="entry-meta">
+    <p><strong>Endpoint:</strong> <code>{{ request.url.scheme }}://{{ request.url.netloc }}/mcp</code></p>
+    <p><strong>Transport:</strong> Streamable HTTP</p>
+</div>
+
+<h2>Tools <span style="font-weight: 400; color: var(--color-text-muted); font-size: 0.85em;">({{ tools | length }})</span></h2>
+<table>
+    <thead>
+        <tr><th>Name</th><th>Description</th><th>Parameters</th></tr>
+    </thead>
+    <tbody>
+        {% for tool in tools %}
+        <tr>
+            <td><code>{{ tool.name }}</code></td>
+            <td>{{ tool.description }}</td>
+            <td style="max-width: 280px; overflow-x: auto;"><code style="font-size: 0.78em;">{{ tool.parameters | tojson }}</code></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if resources %}
+<h2>Resources <span style="font-weight: 400; color: var(--color-text-muted); font-size: 0.85em;">({{ resources | length }})</span></h2>
+<table>
+    <thead>
+        <tr><th>URI</th><th>Name</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+        {% for res in resources %}
+        <tr>
+            <td><code>{{ res.uri }}</code></td>
+            <td>{{ res.name }}</td>
+            <td>{{ res.description or "" }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<h2>Resources</h2>
+<p>No resources exposed.</p>
+{% endif %}
+{% endblock %}

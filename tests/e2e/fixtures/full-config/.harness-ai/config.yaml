@@ -1,0 +1,21 @@
+# full-config fixture: every key explicitly set, all inverted from the
+# built-in CLI defaults, so a pass here can only mean the config file was
+# actually read — the run below passes cli.sh install NO flags at all.
+version: 1
+tools: [claude, copilot]
+install:
+  rtk: false
+  headroom: false
+  wikictl: true
+  openspec: false
+scaffold:
+  createFileMCP: true
+  createFileHooks: true
+  createFileSetting: true
+  updateGitignore: true
+  installDefaults: true
+behavior:
+  caveman: false
+contentRepo:
+  url: ""
+  ref: main

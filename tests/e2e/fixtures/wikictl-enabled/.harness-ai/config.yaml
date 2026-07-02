@@ -1,0 +1,5 @@
+# wikictl-enabled fixture: proves wikictl actually installs, resolves on
+# PATH, and serves after a real `cli.sh install` run — not just that the
+# install.wikictl config flag parsed correctly.
+install:
+  wikictl: true

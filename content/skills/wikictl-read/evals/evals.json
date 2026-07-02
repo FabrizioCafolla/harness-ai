@@ -1,0 +1,47 @@
+[
+  {
+    "prompt": "What did we decide about the authentication method for the API gateway?",
+    "expected_output": "The agent should search wiki entries for authentication and API gateway topics and return matching results.",
+    "assertions": [
+      "Agent calls wikictl to search or list entries",
+      "Agent filters or searches by keywords related to authentication and API gateway",
+      "Agent presents the entry content to the user"
+    ]
+  },
+  {
+    "prompt": "Show me all notes tagged with 'infrastructure'",
+    "expected_output": "The agent should list wiki entries filtered by the infrastructure tag.",
+    "assertions": [
+      "Agent uses tag-based filtering in the wikictl command",
+      "Agent passes 'infrastructure' as the tag filter",
+      "Agent displays all matching entries or states none were found"
+    ]
+  },
+  {
+    "prompt": "How do our caching strategy and database indexing decisions relate to each other?",
+    "expected_output": "The agent should retrieve entries about both caching and database indexing, then correlate the information.",
+    "assertions": [
+      "Agent performs multiple searches or a broad search covering both topics",
+      "Agent reads the full content of relevant entries",
+      "Agent synthesizes information from multiple entries in the response"
+    ]
+  },
+  {
+    "prompt": "What do we have documented about the GraphQL schema versioning?",
+    "expected_output": "The agent should search for GraphQL schema versioning entries and handle the case where nothing is found.",
+    "assertions": [
+      "Agent searches wiki entries for GraphQL schema versioning",
+      "If no entries exist, agent clearly states nothing was found",
+      "Agent does not fabricate or hallucinate entry content"
+    ]
+  },
+  {
+    "prompt": "List all wiki entries, then show me the details of the one about deployment",
+    "expected_output": "The agent should first list all entries, then read the specific deployment-related entry.",
+    "assertions": [
+      "Agent calls a list command first to show all entries",
+      "Agent identifies the deployment-related entry from the list",
+      "Agent calls a read/show command to display the full entry details"
+    ]
+  }
+]

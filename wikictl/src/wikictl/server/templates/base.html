@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}wikictl{% endblock %}</title>
+    <style>
+        :root {
+            --sidebar-width: 272px;
+            --header-height: 56px;
+            --color-primary: #16a34a;
+            --color-primary-dark: #15803d;
+            --color-primary-light: #bbf7d0;
+            --color-primary-subtle: #f0fdf4;
+            --color-bg: #ffffff;
+            --color-surface: #f8faf9;
+            --color-sidebar-bg: #fafcfb;
+            --color-sidebar-border: #e5e7eb;
+            --color-text: #1f2937;
+            --color-text-secondary: #6b7280;
+            --color-text-muted: #9ca3af;
+            --color-link: #15803d;
+            --color-code-bg: #f3f4f6;
+            --color-border: #e5e7eb;
+            --color-border-light: #f3f4f6;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
+            --shadow-lg: 0 12px 40px rgba(0,0,0,0.08);
+            --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+            color: var(--color-text);
+            background: var(--color-bg);
+            line-height: 1.7;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Header */
+        .site-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: var(--header-height);
+            background: rgba(255,255,255,0.92);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--color-border);
+            display: flex;
+            align-items: center;
+            padding: 0 1.5rem;
+            z-index: 200;
+        }
+        .site-header .logo {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--color-text);
+            text-decoration: none;
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .site-header .logo-icon {
+            width: 28px;
+            height: 28px;
+            background: var(--color-primary);
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .site-header .logo-icon svg {
+            width: 16px;
+            height: 16px;
+            color: #fff;
+        }
+        .header-nav {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        .header-nav a {
+            color: var(--color-text-secondary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+            padding: 0.4rem 0.75rem;
+            border-radius: var(--radius-sm);
+            transition: all var(--transition);
+        }
+        .header-nav a:hover {
+            color: var(--color-primary-dark);
+            background: var(--color-primary-subtle);
+        }
+
+        /* Mobile menu toggle */
+        .menu-toggle {
+            display: none;
+            width: 36px;
+            height: 36px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            border-radius: var(--radius-sm);
+            align-items: center;
+            justify-content: center;
+            color: var(--color-text);
+            transition: background var(--transition);
+        }
+        .menu-toggle:hover { background: var(--color-border-light); }
+        .menu-toggle svg { width: 20px; height: 20px; }
+
+        /* Sidebar */
+        .sidebar {
+            position: fixed;
+            top: var(--header-height);
+            left: 0;
+            bottom: 0;
+            width: var(--sidebar-width);
+            background: var(--color-sidebar-bg);
+            border-right: 1px solid var(--color-sidebar-border);
+            overflow-y: auto;
+            padding: 1.25rem 0;
+            z-index: 150;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .sidebar::-webkit-scrollbar { width: 4px; }
+        .sidebar::-webkit-scrollbar-track { background: transparent; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
+
+        /* Tree sidebar */
+        .sidebar ul { list-style: none; }
+        .tree-index {
+            display: block;
+            padding: 0.6rem 0.75rem 0.6rem 1rem;
+            margin: 0.25rem 0;
+            border-bottom: 1px solid var(--color-border-light);
+        }
+        .tree-root { padding: 0.5rem 0 1rem; }
+
+        /* Folder toggle button */
+        .tree-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            width: 100%;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--color-text-secondary);
+            text-align: left;
+            font-family: inherit;
+            font-size: 0.8rem;
+            font-weight: 500;
+            line-height: 1.3;
+            padding: 0.35rem 0.75rem 0.35rem calc(0.6rem + var(--d, 0) * 0.8rem);
+            transition: color var(--transition), background var(--transition);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tree-toggle:hover {
+            color: var(--color-text);
+            background: rgba(22, 163, 74, 0.04);
+        }
+        /* Section-level toggle (depth 0) */
+        .tree-section > .tree-toggle {
+            font-size: 0.68rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            color: var(--color-text-muted);
+            padding-top: 0.7rem;
+            padding-bottom: 0.4rem;
+        }
+        .tree-section > .tree-toggle:hover { color: var(--color-text-secondary); }
+
+        /* Arrow icon */
+        .tree-arrow {
+            flex-shrink: 0;
+            color: var(--color-text-muted);
+            transition: transform 0.18s ease;
+        }
+        .tree-section > .tree-toggle .tree-arrow { opacity: 0.6; }
+        .tree-folder.open > .tree-toggle .tree-arrow { transform: rotate(90deg); }
+
+        /* Collapsible children */
+        .tree-children { display: none; }
+        .tree-folder.open > .tree-children { display: block; }
+
+        /* Entry links */
+        a.tree-entry {
+            display: block;
+            padding: 0.3rem 0.75rem 0.3rem calc(1.55rem + var(--d, 0) * 0.8rem);
+            color: var(--color-text-secondary);
+            text-decoration: none;
+            font-size: 0.79rem;
+            font-weight: 400;
+            line-height: 1.35;
+            transition: all var(--transition);
+            position: relative;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        a.tree-entry::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 0.25rem;
+            bottom: 0.25rem;
+            width: 3px;
+            border-radius: 0 3px 3px 0;
+            background: var(--color-primary);
+            opacity: 0;
+            transform: scaleY(0.5);
+            transition: all var(--transition);
+        }
+        a.tree-entry:hover {
+            color: var(--color-text);
+            background: rgba(22, 163, 74, 0.04);
+        }
+        a.tree-entry.active {
+            color: var(--color-primary-dark);
+            background: var(--color-primary-subtle);
+            font-weight: 550;
+        }
+        a.tree-entry.active::before {
+            opacity: 1;
+            transform: scaleY(1);
+        }
+
+        /* Sidebar search */
+        .sidebar-search-wrap { padding: 0 1rem 0.75rem; }
+        .sidebar-search {
+            width: 100%;
+            padding: 0.4rem 0.65rem;
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm);
+            font-size: 0.8rem;
+            font-family: inherit;
+            color: var(--color-text);
+            background: var(--color-bg);
+            outline: none;
+            transition: border-color var(--transition);
+        }
+        .sidebar-search:focus { border-color: var(--color-primary); }
+        .sidebar-search::placeholder { color: var(--color-text-muted); }
+
+        /* Breadcrumbs */
+        .breadcrumbs {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 0.78rem;
+            color: var(--color-text-muted);
+            margin-bottom: 0.75rem;
+        }
+        .breadcrumbs a { color: var(--color-text-muted); text-decoration: none; }
+        .breadcrumbs a:hover { color: var(--color-primary-dark); text-decoration: underline; }
+        .breadcrumbs .crumb-sep { color: var(--color-border); user-select: none; }
+        .breadcrumbs .crumb-current { color: var(--color-text-secondary); }
+
+        /* Mobile overlay */
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.3);
+            z-index: 140;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .sidebar-overlay.visible {
+            opacity: 1;
+        }
+
+        /* Main content */
+        .content {
+            margin-left: var(--sidebar-width);
+            margin-top: var(--header-height);
+            padding: 2rem 2.5rem;
+            max-width: 800px;
+            min-height: calc(100vh - var(--header-height));
+        }
+        .content h1 {
+            font-size: 1.75rem;
+            font-weight: 650;
+            letter-spacing: -0.025em;
+            color: var(--color-text);
+            margin-bottom: 0.6rem;
+            margin-top: 0;
+            line-height: 1.25;
+        }
+        .content h2 {
+            font-size: 1.2rem;
+            font-weight: 620;
+            margin-top: 2rem;
+            margin-bottom: 0.5rem;
+            color: var(--color-text);
+            letter-spacing: -0.015em;
+        }
+        .content h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-top: 1.35rem;
+            margin-bottom: 0.35rem;
+            color: var(--color-text);
+        }
+        .content h4, .content h5, .content h6 {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-top: 1rem;
+            margin-bottom: 0.3rem;
+            color: var(--color-text-secondary);
+        }
+        .content p { margin: 0.6rem 0; color: var(--color-text-secondary); line-height: 1.7; }
+        .content a {
+            color: var(--color-link);
+            text-decoration: none;
+            transition: color var(--transition);
+        }
+        .content a:hover { color: var(--color-primary); text-decoration: underline; text-underline-offset: 3px; }
+        .content ul, .content ol { margin: 0.5rem 0 0.5rem 1.35rem; color: var(--color-text-secondary); }
+        .content li { margin: 0.25rem 0; line-height: 1.6; }
+        .content code {
+            background: var(--color-code-bg);
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.83em;
+            font-family: "SF Mono", "Fira Code", "JetBrains Mono", Menlo, monospace;
+            color: #b45309;
+        }
+        .content pre {
+            background: #1a1f2e;
+            color: #d4d4d8;
+            padding: 1rem 1.25rem;
+            border-radius: var(--radius-sm);
+            overflow-x: auto;
+            margin: 1rem 0;
+            font-size: 0.83rem;
+            line-height: 1.65;
+        }
+        .content pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+            font-size: inherit;
+        }
+        .content table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1rem 0;
+            font-size: 0.87rem;
+            border: 1px solid var(--color-border-light);
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+        }
+        .content th, .content td {
+            border-bottom: 1px solid var(--color-border-light);
+            padding: 0.55rem 0.9rem;
+            text-align: left;
+        }
+        .content th {
+            background: var(--color-surface);
+            font-weight: 600;
+            font-size: 0.77rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--color-text-muted);
+        }
+        .content tr:last-child td { border-bottom: none; }
+        .content blockquote {
+            border-left: 2px solid var(--color-border);
+            padding: 0.4rem 1rem;
+            margin: 0.75rem 0;
+            color: var(--color-text-muted);
+            font-style: italic;
+        }
+        .content hr {
+            border: none;
+            border-top: 1px solid var(--color-border-light);
+            margin: 1.5rem 0;
+        }
+        .content img { max-width: 100%; border-radius: var(--radius-sm); }
+
+        /* Entry header (replaces old .entry-meta card) */
+        .entry-header {
+            margin-bottom: 1.75rem;
+            padding-bottom: 0.9rem;
+            border-bottom: 1px solid var(--color-border-light);
+        }
+        .entry-description {
+            margin: 0 0 0.45rem;
+            color: var(--color-text-secondary);
+            font-size: 0.9rem;
+            line-height: 1.55;
+        }
+        .entry-meta-strip {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.25rem 0.4rem;
+            font-size: 0.75rem;
+            color: var(--color-text-muted);
+        }
+        .meta-name {
+            font-family: "SF Mono", "Fira Code", Menlo, monospace;
+            font-size: 0.75rem;
+            background: var(--color-code-bg);
+            padding: 0.1rem 0.35rem;
+            border-radius: 4px;
+            color: var(--color-text-secondary);
+        }
+        .meta-sep { color: var(--color-border); user-select: none; }
+        .tag {
+            display: inline-block;
+            background: var(--color-surface);
+            color: var(--color-text-muted);
+            padding: 0.05rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.72rem;
+            border: 1px solid var(--color-border-light);
+        }
+
+        /* Mermaid diagrams */
+        .mermaid {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            padding: 1.5rem;
+            margin: 1.25rem 0;
+            text-align: center;
+            overflow-x: auto;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .content { padding: 1.75rem 1.75rem; }
+        }
+        @media (max-width: 768px) {
+            .menu-toggle { display: flex; }
+            .sidebar {
+                transform: translateX(-100%);
+                box-shadow: none;
+                width: 280px;
+                background: var(--color-bg);
+            }
+            .sidebar.open {
+                transform: translateX(0);
+                box-shadow: var(--shadow-lg);
+            }
+            .sidebar-overlay.visible { display: block; }
+            .content {
+                margin-left: 0;
+                padding: 1.5rem 1.25rem;
+            }
+            .content h1 { font-size: 1.45rem; }
+            .content h2 { font-size: 1.1rem; }
+            .header-nav { gap: 0; }
+            .header-nav a { padding: 0.4rem 0.5rem; font-size: 0.82rem; }
+        }
+        @media (max-width: 480px) {
+            .content { padding: 1.25rem 1rem; }
+            .site-header { padding: 0 1rem; }
+        }
+    </style>
+</head>
+<body>
+    <header class="site-header">
+        <button class="menu-toggle" id="menu-toggle" aria-label="Toggle navigation">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <line x1="3" y1="6" x2="21" y2="6"/>
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+        </button>
+        <a href="/" class="logo">
+            <span class="logo-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                </svg>
+            </span>
+            wikictl
+        </a>
+        <nav class="header-nav">
+            <a href="/mcp-info">MCP</a>
+            <a href="/docs">API</a>
+        </nav>
+    </header>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-search-wrap">
+            <input type="search" id="sidebar-search" class="sidebar-search"
+                   placeholder="Search entries…" aria-label="Search entries">
+        </div>
+        <a href="/" class="tree-entry tree-index{% if active_url == '' %} active{% endif %}" style="--d:0">Index</a>
+        <ul class="tree-root">
+        {% for node in sidebar_tree recursive %}
+            {% if node.entry %}
+            <li>
+                <a href="{{ node.url }}"
+                   class="tree-entry{% if active_url == node.url %} active{% endif %}"
+                   data-search="{{ (node.entry.name ~ ' ' ~ (node.entry.description or '')) | lower }}"
+                   style="--d:{{ loop.depth0 }}">
+                    {{ node.display }}
+                </a>
+            </li>
+            {% else %}
+            <li class="tree-folder{% if loop.depth0 == 0 %} tree-section{% endif %}" id="tree-{{ node.key | replace('/', '-') }}">
+                <button class="tree-toggle" data-key="{{ node.key }}" style="--d:{{ loop.depth0 }}">
+                    <svg class="tree-arrow" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="4,2 8,6 4,10"/>
+                    </svg>
+                    <span>{{ node.display }}</span>
+                </button>
+                <ul class="tree-children">
+                    {{ loop(node.children) }}
+                </ul>
+            </li>
+            {% endif %}
+        {% endfor %}
+        </ul>
+    </nav>
+
+    <main class="content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script>
+    (function() {
+        // Mobile sidebar toggle
+        var menuToggle = document.getElementById('menu-toggle');
+        var sidebar = document.getElementById('sidebar');
+        var overlay = document.getElementById('sidebar-overlay');
+
+        menuToggle.addEventListener('click', function() {
+            sidebar.classList.toggle('open');
+            overlay.classList.toggle('visible');
+        });
+        overlay.addEventListener('click', function() {
+            sidebar.classList.remove('open');
+            overlay.classList.remove('visible');
+        });
+
+        // Tree toggle + localStorage persistence
+        var TREE_LS = 'wikictl-tree';
+        function loadState() {
+            try { return JSON.parse(localStorage.getItem(TREE_LS) || '{}'); } catch(e) { return {}; }
+        }
+        function saveState(s) {
+            try { localStorage.setItem(TREE_LS, JSON.stringify(s)); } catch(e) {}
+        }
+        var treeState = loadState();
+
+        // Restore persisted open state
+        document.querySelectorAll('.tree-toggle').forEach(function(btn) {
+            if (treeState[btn.dataset.key]) {
+                btn.closest('.tree-folder').classList.add('open');
+            }
+        });
+
+        // Auto-open ancestors of the active entry
+        var active = document.querySelector('a.tree-entry.active');
+        if (active) {
+            var el = active.parentElement;
+            while (el) {
+                if (el.classList && el.classList.contains('tree-folder')) {
+                    el.classList.add('open');
+                    var btn = el.querySelector(':scope > .tree-toggle');
+                    if (btn) treeState[btn.dataset.key] = true;
+                }
+                el = el.parentElement;
+            }
+            saveState(treeState);
+        }
+
+        // Click handler
+        document.querySelectorAll('.tree-toggle').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var folder = btn.closest('.tree-folder');
+                var isOpen = folder.classList.toggle('open');
+                treeState[btn.dataset.key] = isOpen;
+                saveState(treeState);
+            });
+        });
+    })();
+
+    // Sidebar search: client-side filter over the entry list already
+    // rendered in the sidebar (name + description) — no backend call.
+    (function() {
+        var input = document.getElementById('sidebar-search');
+        if (!input) return;
+        var entries = Array.prototype.slice.call(document.querySelectorAll('.tree-entry[data-search]'));
+        var folders = Array.prototype.slice.call(document.querySelectorAll('.tree-folder'));
+        var forcedOpen = [];
+
+        input.addEventListener('input', function() {
+            var q = input.value.trim().toLowerCase();
+            forcedOpen.forEach(function(li) { li.classList.remove('open'); });
+            forcedOpen = [];
+
+            if (!q) {
+                entries.forEach(function(a) { a.parentElement.style.display = ''; });
+                folders.forEach(function(li) { li.style.display = ''; });
+                return;
+            }
+
+            entries.forEach(function(a) {
+                var match = a.dataset.search.indexOf(q) !== -1;
+                a.parentElement.style.display = match ? '' : 'none';
+            });
+            folders.forEach(function(li) {
+                var descendants = li.querySelectorAll('.tree-entry[data-search]');
+                var hasVisible = Array.prototype.some.call(descendants, function(a) {
+                    return a.parentElement.style.display !== 'none';
+                });
+                li.style.display = hasVisible ? '' : 'none';
+                if (hasVisible && !li.classList.contains('open')) {
+                    li.classList.add('open');
+                    forcedOpen.push(li);
+                }
+            });
+        });
+    })();
+
+    // Auto-refresh: reload when the wiki changes.
+    (function() {
+        var known = null;
+        function poll() {
+            fetch('/api/version')
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (known === null) { known = d.version; }
+                    else if (d.version !== known) { window.location.reload(); }
+                })
+                .catch(function() {});
+        }
+        poll();
+        setInterval(poll, 4000);
+    })();
+    </script>
+    <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        themeVariables: {
+            primaryColor: '#dcfce7',
+            primaryBorderColor: '#16a34a',
+            primaryTextColor: '#1f2937',
+            lineColor: '#6b7280',
+            secondaryColor: '#f0fdf4',
+            tertiaryColor: '#f8faf9'
+        }
+    });
+    // Convert <pre><code class="language-mermaid"> blocks into rendered diagrams
+    document.querySelectorAll('pre > code.language-mermaid').forEach(function(codeEl, idx) {
+        var pre = codeEl.parentElement;
+        var container = document.createElement('div');
+        container.className = 'mermaid';
+        container.textContent = codeEl.textContent;
+        pre.parentNode.replaceChild(container, pre);
+    });
+    await mermaid.run({ querySelector: '.mermaid' });
+    </script>
+</body>
+</html>

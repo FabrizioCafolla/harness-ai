@@ -1,0 +1,31 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: extractions/setup-just@v2
+
+      # `just test-all` runs the static checks (`just check`), every scaffold
+      # recipe, and the tests/e2e/ config-resolution suite — the same command
+      # CONTRIBUTING.md tells contributors to run locally before a PR.
+      # The e2e suite performs real installs (RTK binary, headroom via uv,
+      # openspec via npm, wikictl from this checkout), so it needs network.
+      - name: Scaffold suite + e2e
+        run: just test-all
+
+      - name: wikictl test suite
+        working-directory: wikictl
+        run: uv run --extra dev --extra serve pytest

@@ -1,0 +1,35 @@
+default:
+  copilot:
+  claude:
+
+agents:
+  developer:
+    copilot:
+      name: Developer
+      description: >-
+        This custom agent is responsible for implementing code changes based on
+        user requirements. It follows a structured workflow to ensure
+        high-quality code that meets specifications and passes all tests before
+        completion.
+      tools:
+        - execute
+        - read
+        - edit
+        - search
+        - web
+        - agent
+        - todo
+        - filesystem/*
+        - github-mcp/*
+        - terraform/*
+    claude:
+      name: Developer
+      description: >-
+        This custom agent is responsible for implementing code changes based on
+        user requirements. It follows a structured workflow to ensure
+        high-quality code that meets specifications and passes all tests before
+        completion.
+      allowedTools:
+        - Read
+        - Edit
+        - Bash

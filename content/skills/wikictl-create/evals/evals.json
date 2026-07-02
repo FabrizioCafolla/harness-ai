@@ -1,0 +1,47 @@
+[
+  {
+    "prompt": "Remember that we decided to use Redis for session storage because of its low latency",
+    "expected_output": "The agent should create a new wiki entry capturing the Redis session storage decision with appropriate metadata.",
+    "assertions": [
+      "Agent calls wikictl create with a descriptive name",
+      "The entry body includes the rationale about low latency",
+      "Agent confirms successful creation to the user"
+    ]
+  },
+  {
+    "prompt": "Save a note about our API rate limiting: we use 100 requests per minute per user",
+    "expected_output": "The agent should create an entry with a kebab-case name like 'api-rate-limiting'.",
+    "assertions": [
+      "Agent generates a kebab-case entry name",
+      "The name does not contain spaces, uppercase letters, or special characters",
+      "The entry body captures the rate limit details (100 req/min/user)"
+    ]
+  },
+  {
+    "prompt": "Create a wiki entry about our monitoring stack, tag it with 'infrastructure' and 'observability'",
+    "expected_output": "The agent should create the entry with both specified tags applied.",
+    "assertions": [
+      "Agent passes 'infrastructure' as a tag",
+      "Agent passes 'observability' as a tag",
+      "The entry is created with the monitoring stack content"
+    ]
+  },
+  {
+    "prompt": "Save a note about our branching strategy - we use trunk-based development",
+    "expected_output": "The agent should check for existing entries about branching strategy before creating to avoid duplicates.",
+    "assertions": [
+      "Agent checks for existing entries about branching strategy before creating",
+      "If no duplicate exists, agent creates the new entry",
+      "If a duplicate exists, agent informs the user and suggests editing instead"
+    ]
+  },
+  {
+    "prompt": "Document that our microservices communicate via gRPC for internal calls and REST for external APIs. Include details about proto file management and versioning.",
+    "expected_output": "The agent should create an entry with a multi-line body covering gRPC, REST, proto files, and versioning.",
+    "assertions": [
+      "Agent creates an entry with a descriptive kebab-case name",
+      "The body content covers both gRPC and REST communication patterns",
+      "The body includes details about proto file management and versioning"
+    ]
+  }
+]
