@@ -215,6 +215,7 @@ def create_html_router() -> APIRouter:
         wiki_dir = request.app.state.wiki_dir
         sidebar_tree = _build_sidebar_tree(list_entries(wiki_dir), wiki_dir)
         return env.get_template(template_name).render(
+            request=request,
             sidebar_tree=sidebar_tree,
             active_url=active_url,
             **kwargs,
