@@ -78,7 +78,7 @@ At runtime `harness.py` merges two sources — private repo wins on key conflict
 
 | Repository                                                                    | Purpose                                                                                                     |
 | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [scaffold-ai-private](https://github.com/FabrizioCafolla/scaffold-ai-private) | Personal `advisor-*` skills and agents for Fabrizio Cafolla — voice, decision patterns, communication style |
+| [harness-ai-private](https://github.com/FabrizioCafolla/harness-ai-private) | Personal `advisor-*` skills and agents for Fabrizio Cafolla — voice, decision patterns, communication style |
 
 The private repo can also override config templates by placing files at:
 
