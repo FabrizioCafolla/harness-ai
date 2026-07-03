@@ -92,17 +92,22 @@ The private repo can also override config templates by placing files at:
 
 Skills are organized by category and subcategory. Every entry in `metadata.yml` carries `category` and `subcategory` fields.
 
-| Category        | Subcategory                    | Typical prefix                   |
-| --------------- | ------------------------------ | -------------------------------- |
-| `engineering`   | `architecture-and-platform`    | `developer-*`, `advisor-*`       |
-| `engineering`   | `build-and-quality`            | `developer-*`                    |
-| `engineering`   | `technical-documentation`      | `advisor-*`                      |
-| `engineering`   | `operations-and-reliability`   | `advisor-*`                      |
-| `communication` | `professional-communication`   | `advisor-*`                      |
-| `communication` | `editorial-and-content`        | `advisor-*`                      |
-| `communication` | `presence-and-ux-writing`      | `advisor-*`                      |
-| `reasoning`     | `ideation-and-problem-framing` | `advisor-*`                      |
-| `reasoning`     | `research-and-study`           | `advisor-*`                      |
-| `reasoning`     | `teaching-and-speaking`        | `advisor-*`                      |
-| `delivery`      | `review-and-improvement`       | `advisor-*`                      |
-| `meta`          | `skills-and-agents`            | `skill-creator`, `agent-creator` |
+Plain, single-word subcategories on purpose — grouping follows what a skill actually does, not a target count.
+
+| Category        | Subcategory   | Typical prefix                        |
+| --------------- | ------------- | --------------------------------------- |
+| `engineering`   | `coding`      | `developer-*`                          |
+| `engineering`   | `architecture`| `developer-*`, `advisor-*`             |
+| `engineering`   | `operations`  | `advisor-*`                            |
+| `engineering`   | `documentation`| `advisor-*`                           |
+| `communication` | `content`     | `advisor-*`                            |
+| `communication` | `messaging`   | `advisor-*`                            |
+| `communication` | `style`       | `caveman`                              |
+| `reasoning`     | `brainstorming`| `advisor-*`                           |
+| `reasoning`     | `research`    | `advisor-*`, `research-scout`          |
+| `reasoning`     | `speaking`    | `advisor-*`                            |
+| `tools`         | `cli`         | `developer-github-cli`, `wikictl-*`    |
+| `meta`          | `creation`    | `skill-creator`, `agent-creator`       |
+| `meta`          | `review`      | `advisor-work-review`                  |
+| `coaching`      | `planning`    | `advisor-*` (private, personal-training) |
+| `coaching`      | `support`     | `advisor-*` (private, personal-training) |

@@ -124,7 +124,7 @@ Named exceptions with no prefix: `research-scout`, `skill-creator`, `agent-creat
 skills:
   developer-example:
     category: engineering # See taxonomy below
-    subcategory: build-and-quality
+    subcategory: coding
     opencode:
       name: developer-example
       description: 'When OpenCode should invoke this skill.'
@@ -137,45 +137,50 @@ skills:
 
 ### Taxonomy
 
-| Category        | Subcategories                                                                                                          |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `engineering`   | `build-and-quality`, `architecture-and-platform`, `operations-and-reliability`, `technical-documentation`              |
-| `communication` | `professional-communication`, `editorial-and-content`, `presence-and-ux-writing`, `interaction-style`                  |
-| `delivery`      | `planning-and-prioritization`, `standards-and-decision-making`, `review-and-improvement`                               |
-| `reasoning`     | `ideation-and-problem-framing`, `research-and-study`, `teaching-and-speaking`                                          |
-| `tools`         | `editor-and-ide`, `cli-and-tool-usage`, `automation-and-environment`                                                   |
-| `meta`          | `skills-and-agents`                                                                                                    |
+Plain, single-word subcategories on purpose — the previous `-and-`-joined labels (`build-and-quality`, `architecture-and-platform`, …) were vague enough that skills got misfiled into near-synonyms. Grouping is driven by what the skill actually does, not by hitting a target count.
 
-`communication/interaction-style` is for response-*style* modifiers (how the assistant talks), distinct from the other `communication` subcategories, which are all about content produced *for others*. `caveman` is the only current occupant.
+| Category        | Subcategories                    |
+| --------------- | ----------------------------------- |
+| `engineering`   | `coding`, `architecture`, `operations`, `documentation` |
+| `communication` | `content`, `messaging`, `style`  |
+| `reasoning`     | `brainstorming`, `research`, `speaking` |
+| `tools`         | `cli`                             |
+| `meta`          | `creation`, `review`              |
+| `coaching`      | `planning`, `support`             |
+
+- `engineering`: `coding` = writing/reviewing code; `architecture` = system/infra design; `operations` = running things in production; `documentation` = decision records and technical docs.
+- `communication`: `content` = anything public-facing (brand voice, posts, visual identity — text and image alike); `messaging` = direct 1:1 communication with a specific person (email, stakeholder updates); `style` = response-*style* modifiers, how the assistant talks rather than what it produces. `caveman` is the only current `style` occupant.
+- `coaching`: only used by private content today (personal-training skills) but part of the shared vocabulary — `planning` = designing the program (exercise selection, periodization); `support` = sustaining it once running (adherence, recovery, nutrition).
+- `tools/cli` is the only subcategory currently in use under `tools`; add a new one only when a skill actually needs it rather than pre-declaring unused buckets.
 
 ### Public skill inventory
 
-| Key                               | Category      | Subcategory               |
-| --------------------------------- | ------------- | -------------------------- |
-| `developer-python`                | engineering   | build-and-quality         |
-| `developer-shell`                 | engineering   | build-and-quality         |
-| `developer-javascript`            | engineering   | build-and-quality         |
-| `developer-typescript`            | engineering   | build-and-quality         |
-| `developer-framework-astro`       | engineering   | build-and-quality         |
-| `developer-go`                    | engineering   | build-and-quality         |
-| `developer-docker`                | engineering   | build-and-quality         |
-| `developer-github-actions`        | engineering   | build-and-quality         |
-| `developer-tdd`                   | engineering   | build-and-quality         |
-| `developer-diagnosing-bugs`       | engineering   | build-and-quality         |
-| `developer-microservices-and-api` | engineering   | architecture-and-platform |
-| `developer-terraform`             | engineering   | architecture-and-platform |
-| `developer-kubernetes`            | engineering   | architecture-and-platform |
-| `developer-github-cli`            | tools         | cli-and-tool-usage        |
-| `wikictl`                         | tools         | cli-and-tool-usage        |
-| `wikictl-read`                    | tools         | cli-and-tool-usage        |
-| `wikictl-create`                  | tools         | cli-and-tool-usage        |
-| `wikictl-edit`                    | tools         | cli-and-tool-usage        |
-| `wikictl-mcp`                     | tools         | cli-and-tool-usage        |
-| `caveman`                         | communication | interaction-style         |
-| `skill-creator`                   | meta          | skills-and-agents         |
-| `agent-creator`                   | meta          | skills-and-agents         |
+| Key                               | Category      | Subcategory  |
+| --------------------------------- | ------------- | ------------- |
+| `developer-python`                | engineering   | coding        |
+| `developer-shell`                 | engineering   | coding        |
+| `developer-javascript`            | engineering   | coding        |
+| `developer-typescript`            | engineering   | coding        |
+| `developer-framework-astro`       | engineering   | coding        |
+| `developer-go`                    | engineering   | coding        |
+| `developer-docker`                | engineering   | coding        |
+| `developer-github-actions`        | engineering   | coding        |
+| `developer-tdd`                   | engineering   | coding        |
+| `developer-diagnosing-bugs`       | engineering   | coding        |
+| `developer-microservices-and-api` | engineering   | architecture  |
+| `developer-terraform`             | engineering   | architecture  |
+| `developer-kubernetes`            | engineering   | architecture  |
+| `developer-github-cli`            | tools         | cli           |
+| `wikictl`                         | tools         | cli           |
+| `wikictl-read`                    | tools         | cli           |
+| `wikictl-create`                  | tools         | cli           |
+| `wikictl-edit`                    | tools         | cli           |
+| `wikictl-mcp`                     | tools         | cli           |
+| `caveman`                         | communication | style         |
+| `skill-creator`                   | meta          | creation      |
+| `agent-creator`                   | meta          | creation      |
 
-**`developer-github-actions` vs `developer-github-cli` split**: deliberately in different categories despite both being "GitHub". `developer-github-actions` is `engineering/build-and-quality` — it's about writing and reviewing workflow YAML, a build artifact like any other config file. `developer-github-cli` is `tools/cli-and-tool-usage` — it's about operating the `gh` CLI itself (issues, PRs, releases), not producing a build artifact. The same distinction places the `wikictl-*` skills in `tools` rather than `engineering`: they operate a specific CLI/MCP server, they don't encode a language or framework convention.
+**`developer-github-actions` vs `developer-github-cli` split**: deliberately in different categories despite both being "GitHub". `developer-github-actions` is `engineering/coding` — it's about writing and reviewing workflow YAML, a build artifact like any other config file. `developer-github-cli` is `tools/cli` — it's about operating the `gh` CLI itself (issues, PRs, releases), not producing a build artifact. The same distinction places the `wikictl-*` skills in `tools` rather than `engineering`: they operate a specific CLI/MCP server, they don't encode a language or framework convention.
 
 **Why 5 `wikictl-*` skills instead of 1**: every `developer-*` skill is one file per tool/language (`developer-docker`, `developer-kubernetes`, …), but wikictl is split into 5 (`wikictl`, `wikictl-read`, `wikictl-create`, `wikictl-edit`, `wikictl-mcp`). This is deliberate, not an inconsistency to "fix" by merging them: each `wikictl-*` skill is a distinct *workflow* (reading vs. creating vs. editing memory, or the MCP transport specifically) that should trigger independently based on what the agent is actually trying to do, where a `developer-*` skill is one *topic* with internal structure (sections within a single SKILL.md) that all trigger together whenever that tool is in play. `wikictl` itself is the bootstrap/dispatcher skill pointing at the other four.
 

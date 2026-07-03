@@ -13,7 +13,7 @@ default:
 skills:
   agent-creator:
     category: meta
-    subcategory: skills-and-agents
+    subcategory: creation
     opencode:
       name: agent-creator
       description: >-
@@ -31,7 +31,7 @@ skills:
 
   skill-creator:
     category: meta
-    subcategory: skills-and-agents
+    subcategory: creation
     opencode:
       name: skill-creator
       description: >-
@@ -49,7 +49,7 @@ skills:
 
   developer-diagnosing-bugs:
     category: engineering
-    subcategory: build-and-quality
+    subcategory: coding
     opencode:
       name: developer-diagnosing-bugs
       description: >-
@@ -67,7 +67,7 @@ skills:
 
   developer-docker:
     category: engineering
-    subcategory: build-and-quality
+    subcategory: coding
     opencode:
       name: developer-docker
       description: >-
@@ -83,7 +83,7 @@ skills:
 
   developer-framework-astro:
     category: engineering
-    subcategory: build-and-quality
+    subcategory: coding
     opencode:
       name: developer-framework-astro
       description: >-
@@ -99,7 +99,7 @@ skills:
 
   developer-github-actions:
     category: engineering
-    subcategory: build-and-quality
+    subcategory: coding
     opencode:
       name: developer-github-actions
       description: >-
@@ -115,7 +115,7 @@ skills:
 
   developer-go:
     category: engineering
-    subcategory: build-and-quality
+    subcategory: coding
     opencode:
       name: developer-go
       description: >-
@@ -131,7 +131,7 @@ skills:
 
   developer-javascript:
     category: engineering
-    subcategory: build-and-quality
+    subcategory: coding
     opencode:
       name: developer-javascript
       description: >-
@@ -147,7 +147,7 @@ skills:
 
   developer-kubernetes:
     category: engineering
-    subcategory: architecture-and-platform
+    subcategory: architecture
     opencode:
       name: developer-kubernetes
       description: >-
@@ -165,7 +165,7 @@ skills:
 
   developer-microservices-and-api:
     category: engineering
-    subcategory: architecture-and-platform
+    subcategory: architecture
     opencode:
       name: developer-microservices-and-api
       description: >-
@@ -181,7 +181,7 @@ skills:
 
   developer-python:
     category: engineering
-    subcategory: build-and-quality
+    subcategory: coding
     opencode:
       name: developer-python
       description: >-
@@ -197,7 +197,7 @@ skills:
 
   developer-shell:
     category: engineering
-    subcategory: build-and-quality
+    subcategory: coding
     opencode:
       name: developer-shell
       description: >-
@@ -215,7 +215,7 @@ skills:
 
   developer-tdd:
     category: engineering
-    subcategory: build-and-quality
+    subcategory: coding
     opencode:
       name: developer-tdd
       description: >-
@@ -233,7 +233,7 @@ skills:
 
   developer-terraform:
     category: engineering
-    subcategory: architecture-and-platform
+    subcategory: architecture
     opencode:
       name: developer-terraform
       description: >-
@@ -253,7 +253,7 @@ skills:
 
   developer-typescript:
     category: engineering
-    subcategory: build-and-quality
+    subcategory: coding
     opencode:
       name: developer-typescript
       description: >-
@@ -269,7 +269,7 @@ skills:
 
   caveman:
     category: communication
-    subcategory: interaction-style
+    subcategory: style
     opencode:
       name: caveman
       description: >-
@@ -295,7 +295,7 @@ skills:
 
   developer-github-cli:
     category: tools
-    subcategory: cli-and-tool-usage
+    subcategory: cli
     opencode:
       name: developer-github-cli
       description: >-
@@ -319,7 +319,7 @@ skills:
 
   wikictl:
     category: tools
-    subcategory: cli-and-tool-usage
+    subcategory: cli
     opencode:
       name: wikictl
       description: "Bootstrap skill for the wikictl AI memory system. Load this skill to understand what wikictl is, when to use memory, and which operational skill to invoke (wikictl-read, wikictl-create, wikictl-edit). Use when the agent mentions 'memory', 'remember', 'wiki', 'wikictl', 'recall', 'what do I know about', or needs persistent knowledge across sessions."
@@ -329,7 +329,7 @@ skills:
 
   wikictl-read:
     category: tools
-    subcategory: cli-and-tool-usage
+    subcategory: cli
     opencode:
       name: wikictl-read
       description: "Retrieve and correlate memories from the wikictl wiki. Use when the agent needs to recall information, find context, or answer questions that might be covered by previously stored knowledge. Trigger on: 'what do I know about', 'recall', 'find in memory', 'check wiki', 'look up', or when context from past sessions would be useful."
@@ -339,7 +339,7 @@ skills:
 
   wikictl-create:
     category: tools
-    subcategory: cli-and-tool-usage
+    subcategory: cli
     opencode:
       name: wikictl-create
       description: "Create new memory entries in the wikictl wiki. Use when the agent encounters information worth persisting: decisions made, user preferences, project conventions, architecture choices, lessons learned. Trigger on: 'remember this', 'save this', 'store this', 'note this down', or when the agent recognizes memory-worthy information during a session."
@@ -349,7 +349,7 @@ skills:
 
   wikictl-edit:
     category: tools
-    subcategory: cli-and-tool-usage
+    subcategory: cli
     opencode:
       name: wikictl-edit
       description: "Edit existing memory entries in the wikictl wiki. Use when the agent has updated, corrected, or supplementary information for an existing wiki entry. Trigger on: 'update memory', 'correct this', 'add to existing', 'modify wiki entry', or when the agent discovers that stored information needs revision."
@@ -359,7 +359,7 @@ skills:
 
   wikictl-mcp:
     category: tools
-    subcategory: cli-and-tool-usage
+    subcategory: cli
     opencode:
       name: wikictl-mcp
       description: "Interact with the wikictl wiki via MCP protocol. Use when the agent has an MCP client configured and the wikictl server is running. Provides full CRUD access to wiki entries through MCP tools instead of CLI commands. Trigger on: 'use mcp', 'mcp tools', 'connect to wiki server', or when the agent detects an MCP connection to wikictl is available."
