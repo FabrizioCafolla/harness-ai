@@ -1,13 +1,13 @@
 # Harness AI Developer Guide
 
-harness-ai is a devcontainer feature and standalone CLI that scaffolds AI agent and skill assets (Claude, GitHub Copilot) into a workspace. Content is tool-agnostic Markdown; per-tool YAML frontmatter is injected at scaffold time.
+harness-ai is a devcontainer feature and standalone CLI that scaffolds AI agent and skill assets (Claude Code, OpenCode) into a workspace. Content is tool-agnostic Markdown; per-tool YAML frontmatter is injected at scaffold time.
 
 ## Repository Layout
 
 ```
 harness-ai/
 ├── content/                    # Tool-agnostic Markdown content
-│   ├── paths.yml               # Output paths per tool (copilot / claude)
+│   ├── paths.yml               # Output paths per tool (claude / opencode)
 │   ├── agents/
 │   │   ├── metadata.yml        # Per-tool frontmatter for each agent
 │   │   └── <key>.md            # Agent body (no frontmatter)
@@ -18,17 +18,18 @@ harness-ai/
 │   │       └── references/     # Optional reference docs
 │   └── agents.harness-ai.md    # Static content injected into every scaffolded AGENTS.md
 ├── config/                     # Per-tool config templates
-│   ├── mcp.json                # Shared .mcp.json template (Claude, VS Code, Copilot)
+│   ├── mcp.json                # Shared .mcp.json template (Claude Code)
 │   ├── mcp.wikictl.json        # Gated wikictl MCP entry (merged into .mcp.json when wikictl is enabled)
+│   ├── opencode.json           # OpenCode's own config/mcp starter template (copy-once)
+│   ├── mcp.wikictl.opencode.json # Gated wikictl MCP entry (merged into opencode.json's mcp key when wikictl is enabled)
 │   ├── config.default.yaml     # Starter .harness-ai/config.yaml template (copy-once)
 │   ├── claude/
 │   │   ├── hooks.json          # Claude hooks template (always-managed; install.rtk injects the rtk hook here)
 │   │   ├── settings.json       # Claude settings (copy-once, includes statusLine)
 │   │   ├── settings.local.json # Claude local settings (copy-once, gitignored)
 │   │   └── statusline.sh       # Claude statusline (copy-once → .claude/statusline.sh)
-│   └── copilot/
-│       ├── hooks.json          # Copilot hooks template (always-managed)
-│       └── config.json         # Copilot config (copy-once)
+│   └── opencode/
+│       └── rtk-plugin.ts       # OpenCode RTK plugin (always-managed → .opencode/plugins/rtk.ts; vendored from rtk-ai/rtk, self-disables if rtk isn't on PATH)
 ├── wikictl/                    # wikictl package source (fetched at runtime, never vendored into the feature)
 │   ├── pyproject.toml          # Standalone pip-installable package
 │   └── src/wikictl/            # CLI + MCP server + render-only web UI
@@ -59,17 +60,17 @@ Nothing about harness-ai is vendored into the published feature. `cli.sh` is the
 
 **Optional components (gated by `.harness-ai/config.yaml` → `install.*`, or the matching CLI flag):**
 
-- **RTK** (`install.rtk` / `--no-rtk`, default on) — token-compressing Bash `PreToolUse` hook.
-- **Headroom** (`install.headroom` / `--no-headroom`, default on) — request-level context compression CLI; installed but inactive until `headroom wrap claude`.
+- **RTK** (`install.rtk` / `--no-rtk`, default on) — token-compressing Bash rewrite. Claude Code gets a `PreToolUse` hook (merged into `.claude/settings.json[hooks]`); OpenCode gets a static plugin (`config/opencode/rtk-plugin.ts` → `.opencode/plugins/rtk.ts`) that self-disables at runtime if `rtk` isn't on PATH — no cli.sh-side merge step needed for it, see `_apply_opencode_hook` in `harness.py`.
+- **Headroom** (`install.headroom` / `--no-headroom`, default on) — request-level context compression CLI; installed but inactive until `headroom wrap <cli>` (e.g. `headroom wrap claude`, `headroom wrap opencode`).
 - **openspec** (`install.openspec` / `--no-openspec`, default on) — installs `@fission-ai/openspec` via `npm install -g`; warns and continues if `npm` is missing or the install fails.
-- **wikictl** (`install.wikictl` / `--wikictl`, default **off**) — file-based AI memory layer. The source lives at `wikictl/` in this repo, fetched at the pinned ref and installed with `uv tool install "${HARNESS_SRC}/wikictl[serve]"`; warns and continues if `uv` is missing. `cli.sh` passes `--install-wikictl` to `harness.py`, which then merges the gated `config/mcp.wikictl.json` server entry (default port **9797**) into `.mcp.json`. The `wikictl-*` skills live in `content/skills/` and deploy unconditionally (like `caveman`).
+- **wikictl** (`install.wikictl` / `--wikictl`, default **off**) — file-based AI memory layer. The source lives at `wikictl/` in this repo, fetched at the pinned ref and installed with `uv tool install "${HARNESS_SRC}/wikictl[serve]"`; warns and continues if `uv` is missing. `cli.sh` passes `--install-wikictl` to `harness.py`, which then merges the gated `config/mcp.wikictl.json` server entry (default port **9797**) into `.mcp.json` (Claude Code) and, when `opencode` is an active tool, `config/mcp.wikictl.opencode.json` into `opencode.json`'s `mcp` key (`_merge_wikictl_mcp_opencode`). The `wikictl-*` skills live in `content/skills/` and deploy unconditionally (like `caveman`).
   - Agents using wikictl read the metadata-first protocol from the MCP server itself: scan with `list_entries`/`search_entries` (metadata only), evaluate relevance from `description`/`tags`, then `read_entry` only what's needed. `get_schema` returns the entry metadata contract (field names, types, required/optional, validation rules) and works on an empty wiki.
   - `cli.sh` guarantees `uv`-installed binaries (wikictl, Headroom) resolve on `PATH` immediately after install: `_ensure_uv_tool_path()` exports `uv tool dir --bin` onto `PATH` for the rest of the current run, and a best-effort `uv tool update-shell` (never fails the install) makes them resolvable in later shells too.
 - **custom** (`install.custom`, a `name: <shell command>` map, default `{}`) — arbitrary extra install commands not covered by the four built-ins above (e.g. `speckit: "uv tool install speckit-cli"`). Each entry runs as `bash -c "<command>"` during `install` (never `sync`), warn-and-continue on failure. No already-installed check — commands are expected to be self-idempotent, the same contract mise's `[tasks]` and devbox's `init_hook` use for the same flat name→command shape.
 
-**Behavior defaults (gated by `.harness-ai/config.yaml` → `behavior.*`, or the matching CLI flag — steer Claude's behavior via AGENTS.md, not a binary install):**
+**Behavior defaults (gated by `.harness-ai/config.yaml` → `behavior.*`, or the matching CLI flag — steer model behavior via AGENTS.md, not a binary install; AGENTS.md is read natively by both Claude Code and OpenCode):**
 
-- **caveman-default** (`behavior.caveman` / `--no-caveman`, default on) — when true and the `caveman` skill is among the tool's installed skills, `harness.py`'s `_update_agents_md()` prepends a "respond in caveman mode from message one" instruction to the managed AGENTS.md block. Inert until the `caveman` skill is actually installed (`installDefaults: true` or a content-repo override providing it). The bundled `statusline.sh` shows the caveman indicator by reading this config key directly — it does not parse the session transcript (undocumented, unstable schema across Claude Code releases).
+- **caveman-default** (`behavior.caveman` / `--no-caveman`, default on) — when true and the `caveman` skill is among the tool's installed skills, `harness.py`'s `_update_agents_md()` prepends a "respond in caveman mode from message one" instruction to the managed AGENTS.md block. Inert until the `caveman` skill is actually installed (`installDefaults: true` or a content-repo override providing it). The bundled `statusline.sh` (Claude Code only) shows the caveman indicator by reading this config key directly — it does not parse the session transcript (undocumented, unstable schema across Claude Code releases).
 
 **harness.py reads:**
 
@@ -88,15 +89,17 @@ Nothing about harness-ai is vendored into the published feature. `cli.sh` is the
 ```yaml
 agents:
   <key>:
-    copilot:
+    opencode:
       name: Display Name
-      description: 'When Copilot should activate this agent.'
-      tools: [read, edit, execute, search, web, agent, todo, filesystem/*]
+      description: 'When OpenCode should activate this agent.'
+      mode: subagent
     claude:
       name: Display Name
       description: 'When Claude should activate this agent.'
       allowedTools: [Read, Edit, Bash]
 ```
+
+OpenCode's `permission` key (`edit`/`bash`/`webfetch`: `allow`/`deny`/`ask`) gates broad tool *categories*, not an arbitrary allowlist like Claude's `allowedTools` — there's no lossless 1:1 mapping. Omit `permission` for full access (the default), or set it explicitly per agent if it needs restricting.
 
 ## Adding a Skill
 
@@ -122,9 +125,9 @@ skills:
   developer-example:
     category: engineering # See taxonomy below
     subcategory: build-and-quality
-    copilot:
+    opencode:
       name: developer-example
-      description: 'When Copilot should invoke this skill.'
+      description: 'When OpenCode should invoke this skill.'
     claude:
       name: developer-example
       description: 'When Claude should invoke this skill.'
@@ -197,8 +200,9 @@ your-content-repo/
 │       └── SKILL.md         # skill body (no frontmatter)
 ├── hooks/                   # optional config overrides
 │   ├── claude.json          # full replacement for config/claude/hooks.json
-│   └── copilot.json         # full replacement for config/copilot/hooks.json
+│   └── opencode.ts          # full replacement for config/opencode/rtk-plugin.ts
 ├── mcp.json                 # optional: full replacement for config/mcp.json
+├── opencode.json            # optional: full replacement for config/opencode.json
 ├── paths.yml                # optional: per-tool output paths, merged per-tool-key over the bundled default
 └── agents.harness-ai.md     # optional: appended after the bundled agents.harness-ai.md
 ```
@@ -229,14 +233,14 @@ cli.sh install --content-repo-local-path ./my-extension   # verify it scaffolds 
 Files under `config/` are deployed to the workspace based on the active `.harness-ai/config.yaml` `scaffold.*` keys (or the matching CLI flag):
 
 | Source                              | Destination                    | Config key           | Behavior       |
-| ------------------------------------ | ------------------------------ | --------------------- | -------------- |
-| `config/mcp.json`                   | `.mcp.json`                    | `scaffold.createFileMCP`     | copy-once      |
-| `config/claude/hooks.json`          | `.claude/settings.json[hooks]` | `scaffold.createFileHooks`   | always-managed |
-| `config/claude/settings.json`       | `.claude/settings.json`        | `scaffold.createFileSetting` | copy-once      |
-| `config/claude/settings.local.json` | `.claude/settings.local.json`  | `scaffold.createFileSetting` | copy-once      |
-| `config/claude/statusline.sh`       | `.claude/statusline.sh`        | `scaffold.createFileSetting` | copy-once      |
-| `config/copilot/hooks.json`         | `.github/hooks/hooks.json`     | `scaffold.createFileHooks`   | always-managed |
-| `config/copilot/config.json`        | `.copilot/config.json`         | `scaffold.createFileSetting` | copy-once      |
+| ------------------------------------ | ------------------------------- | --------------------- | -------------- |
+| `config/mcp.json`                   | `.mcp.json`                     | `scaffold.createFileMCP`     | copy-once      |
+| `config/claude/hooks.json`          | `.claude/settings.json[hooks]`  | `scaffold.createFileHooks`   | always-managed |
+| `config/claude/settings.json`       | `.claude/settings.json`         | `scaffold.createFileSetting` | copy-once      |
+| `config/claude/settings.local.json` | `.claude/settings.local.json`   | `scaffold.createFileSetting` | copy-once      |
+| `config/claude/statusline.sh`       | `.claude/statusline.sh`         | `scaffold.createFileSetting` | copy-once      |
+| `config/opencode/rtk-plugin.ts`     | `.opencode/plugins/rtk.ts`      | `scaffold.createFileHooks`   | always-managed |
+| `config/opencode.json`              | `opencode.json`                 | `scaffold.createFileMCP`     | copy-once      |
 
 **copy-once**: file is created on first scaffold run; skipped if destination already exists (preserves user edits).
 
@@ -246,11 +250,12 @@ Files under `config/` are deployed to the workspace based on the active `.harnes
 
 A private content repo can override config templates by placing files at these paths:
 
-| Content repo path    | Overrides                   |
-| --------------------- | --------------------------- |
-| `mcp.json`           | `config/mcp.json`           |
-| `hooks/claude.json`  | `config/claude/hooks.json`  |
-| `hooks/copilot.json` | `config/copilot/hooks.json` |
+| Content repo path    | Overrides                       |
+| --------------------- | -------------------------------- |
+| `mcp.json`           | `config/mcp.json`               |
+| `opencode.json`      | `config/opencode.json`          |
+| `hooks/claude.json`  | `config/claude/hooks.json`      |
+| `hooks/opencode.ts`  | `config/opencode/rtk-plugin.ts` |
 
 ## Updating externally-sourced skills
 
@@ -269,8 +274,8 @@ Run `just update-skills` to refresh every skill that declares a `ref:` (or `just
 just check              # fast static checks: shell syntax, Python parse, YAML validity
 just test-all           # check + every recipe below + test-e2e, one command (what CI runs)
 just test               # scaffold Claude only into ./test/
-just test-copilot       # scaffold Copilot only
-just test-both          # scaffold Claude + Copilot with hooks
+just test-opencode      # scaffold OpenCode only
+just test-both          # scaffold Claude + OpenCode with hooks
 just test-no-defaults   # scaffold with installDefaults=false — expects empty output without a content repo
 just test-hooks         # verify hooks override from a simulated private repo
 just test-content-repo  # verify private skills from a simulated content repo

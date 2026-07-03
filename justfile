@@ -15,12 +15,12 @@ check:
     @echo "check: OK"
 
 # Full local suite, one command. Each recipe runs as its own `just` invocation
-# on purpose: chaining them on one command line (`just test test-copilot ...`)
+# on purpose: chaining them on one command line (`just test test-opencode ...`)
 # dedupes the shared `clean` dependency to a single run, so later recipes
 # silently reuse the previous workspace and skip via the content-hash lock.
 test-all: check
     just test
-    just test-copilot
+    just test-opencode
     just test-both
     just test-no-defaults
     just test-idempotent
@@ -44,26 +44,26 @@ test: clean
         --update-gitignore true \
         --install-defaults true
 
-# Scaffold Copilot only
-test-copilot: clean
-    @echo "==> Running scaffold (tools: copilot)..."
+# Scaffold OpenCode only
+test-opencode: clean
+    @echo "==> Running scaffold (tools: opencode)..."
     mkdir -p {{workspace}}
     {{uv}} \
         --workspace {{workspace}} \
-        --tools copilot \
+        --tools opencode \
         --create-file-mcp true \
         --create-file-hooks true \
         --create-file-setting false \
         --update-gitignore true \
         --install-defaults true
 
-# Scaffold Claude + Copilot with hooks
+# Scaffold Claude + OpenCode with hooks
 test-both: clean
-    @echo "==> Running scaffold (tools: claude,copilot + hooks)..."
+    @echo "==> Running scaffold (tools: claude,opencode + hooks)..."
     mkdir -p {{workspace}}
     {{uv}} \
         --workspace {{workspace}} \
-        --tools claude,copilot \
+        --tools claude,opencode \
         --create-file-mcp true \
         --create-file-hooks true \
         --create-file-setting true \
@@ -98,12 +98,12 @@ test-hooks: clean
     mkdir -p {{workspace}} /tmp/harness-test-private/hooks
     echo '{"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo pre-tool-use-from-private"}]}], "PostToolUse": [], "UserPromptSubmit": [], "Stop": [], "Notification": []}' \
         > /tmp/harness-test-private/hooks/claude.json
-    echo '{"version": 1, "hooks": {"sessionStart": [{"type": "command", "command": {"unix": "echo session-start-from-private"}}], "sessionEnd": [], "userPromptSubmitted": [], "preToolUse": [], "postToolUse": [], "errorOccurred": []}}' \
-        > /tmp/harness-test-private/hooks/copilot.json
+    echo '// session-start-from-private (test marker)' \
+        > /tmp/harness-test-private/hooks/opencode.ts
     @echo "==> Running scaffold with private content repo..."
     {{uv}} \
         --workspace {{workspace}} \
-        --tools claude,copilot \
+        --tools claude,opencode \
         --create-file-mcp true \
         --create-file-hooks true \
         --create-file-setting true \
@@ -114,9 +114,9 @@ test-hooks: clean
     grep -q "pre-tool-use-from-private" {{workspace}}/.claude/settings.json \
         && echo "  [OK] Claude hooks: private override applied" \
         || { echo "  [FAIL] Claude hooks: private override NOT applied"; exit 1; }
-    grep -q "session-start-from-private" {{workspace}}/.github/hooks/hooks.json \
-        && echo "  [OK] Copilot hooks: private override applied" \
-        || { echo "  [FAIL] Copilot hooks: private override NOT applied"; exit 1; }
+    grep -q "session-start-from-private" {{workspace}}/.opencode/plugins/rtk.ts \
+        && echo "  [OK] OpenCode hooks: private override applied" \
+        || { echo "  [FAIL] OpenCode hooks: private override NOT applied"; exit 1; }
     rm -rf /tmp/harness-test-private
 
 # Scaffold with a simulated local content repo (private skills + hooks)
@@ -125,9 +125,9 @@ test-content-repo: clean
     mkdir -p /tmp/harness-test-content/agents \
               /tmp/harness-test-content/skills/my-private-skill \
               /tmp/harness-test-content/hooks
-    printf 'default:\n  claude:\n  copilot:\n\nagents:\n' \
+    printf 'default:\n  claude:\n  opencode:\n\nagents:\n' \
         > /tmp/harness-test-content/agents/metadata.yml
-    printf 'default:\n  claude:\n  copilot:\n\nskills:\n  my-private-skill:\n    category: engineering\n    subcategory: build-and-quality\n    claude:\n      name: my-private-skill\n      description: Test private skill\n    copilot:\n      name: my-private-skill\n      description: Test private skill\n' \
+    printf 'default:\n  claude:\n  opencode:\n\nskills:\n  my-private-skill:\n    category: engineering\n    subcategory: build-and-quality\n    claude:\n      name: my-private-skill\n      description: Test private skill\n    opencode:\n      name: my-private-skill\n      description: Test private skill\n' \
         > /tmp/harness-test-content/skills/metadata.yml
     printf '# My Private Skill\nThis is a test private skill.' \
         > /tmp/harness-test-content/skills/my-private-skill/SKILL.md
@@ -177,7 +177,7 @@ update-skills NAME="":
     for key, skill in (data.get("skills") or {}).items():
         if name_filter and key != name_filter:
             continue
-        for tool in ("claude", "copilot"):
+        for tool in ("claude", "opencode"):
             ref = ((skill.get(tool) or {}).get("metadata") or {}).get("ref")
             if ref:
                 print(f"{key}\t{ref}")

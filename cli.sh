@@ -25,7 +25,7 @@
 #
 # Options:
 #   --workspace DIR              Target workspace directory (default: current dir)
-#   --tools claude|copilot|...   Comma-separated tools (default: claude; overridden by .harness-ai/config.yaml)
+#   --tools claude|opencode|...  Comma-separated tools (default: claude; overridden by .harness-ai/config.yaml)
 #   --no-mcp                     Skip .mcp.json creation
 #   --no-hooks                   Skip hooks file management
 #   --no-settings                Skip settings file creation
@@ -36,7 +36,7 @@
 #   --content-repo-local-path DIR  Use a local content-repo checkout instead of cloning (dev/test)
 #   --ref BRANCH|TAG             harness-ai git ref to clone (default: main)
 #   --local-path DIR             Use a local harness-ai checkout instead of cloning (dev/test, implies --force)
-#   --no-rtk                     Skip RTK install and Claude PreToolUse hook
+#   --no-rtk                     Skip RTK install and its Claude/OpenCode hooks
 #   --no-headroom                Skip the Headroom CLI install
 #   --wikictl                    Install wikictl (CLI + MCP server + skills; off by default)
 #   --force                      Ignore the .harness-ai/lock hash and re-scaffold
@@ -115,7 +115,7 @@ Subcommands:
 
 Options:
   --workspace DIR         Target workspace directory (default: current dir)
-  --tools LIST            Comma-separated tools: claude, copilot (default: claude)
+  --tools LIST            Comma-separated tools: claude, opencode (default: claude)
   --no-mcp                Skip .mcp.json creation
   --no-hooks              Skip hooks file management
   --no-settings           Skip settings file creation
@@ -126,7 +126,7 @@ Options:
   --content-repo-local-path DIR  Use a local content-repo checkout instead of cloning (dev/test)
   --ref BRANCH|TAG        harness-ai git ref to clone (default: main)
   --local-path DIR        Use a local harness-ai checkout instead of cloning (dev/test, implies --force)
-  --no-rtk                Skip RTK install and Claude hook
+  --no-rtk                Skip RTK install and its Claude/OpenCode hooks
   --no-headroom           Skip the Headroom CLI install
   --wikictl               Install wikictl (file-based AI memory: CLI + MCP server + skills; off by default)
   --no-openspec           Skip the openspec CLI install (npm; installed by default)
@@ -171,7 +171,7 @@ run_interactive() {
     echo ""
     echo "  harness-ai interactive setup"
     echo "  ─────────────────────────────────────────"
-    _prompt       "tools (comma-separated: claude, copilot)" "${TOOLS}"          TOOLS
+    _prompt       "tools (comma-separated: claude, opencode)" "${TOOLS}"         TOOLS
     _prompt_bool  "createFileMCP"                             "${CREATE_FILE_MCP}"      CREATE_FILE_MCP
     _prompt_bool  "createFileHooks"                           "${CREATE_FILE_HOOKS}"    CREATE_FILE_HOOKS
     _prompt_bool  "createFileSetting"                         "${CREATE_FILE_SETTING}"  CREATE_FILE_SETTING
@@ -297,7 +297,7 @@ cmd_init_extension() {
     cat >"${EXTENSION_PATH}/agents/metadata.yml" <<'EOF'
 default:
   claude:
-  copilot:
+  opencode:
 
 agents:
   example-agent:
@@ -309,14 +309,11 @@ agents:
       allowedTools:
         - Read
         - Edit
-    copilot:
+    opencode:
       name: Example Agent
       description: >-
         Replace with a description of when this agent should be selected.
-      tools:
-        - read
-        - edit
-        - search
+      mode: subagent
 EOF
 
     cat >"${EXTENSION_PATH}/agents/example-agent.md" <<'EOF'
@@ -329,7 +326,7 @@ EOF
 default:
   claude:
     license: MIT
-  copilot:
+  opencode:
     license: MIT
 
 skills:
@@ -342,7 +339,7 @@ skills:
       description: >-
         Replace with a specific "Use when..." trigger description — this is
         what the model reads to decide when to invoke the skill.
-    copilot:
+    opencode:
       name: example-skill
       description: >-
         Replace with a specific "Use when..." trigger description.
@@ -621,6 +618,8 @@ PYEOF
 
 # ---------------------------------------------------------------------------
 # RTK (optional) — install binary and register the Claude PreToolUse hook.
+# (OpenCode's RTK activation is a static plugin file, not a merge — see
+# harness.py's _apply_opencode_hook; no cli.sh-side step needed for it.)
 #
 # Binary install (_install_rtk_binary) and hook merge (_merge_rtk_hook) are
 # separate on purpose: every run fetches a *fresh* harness-ai clone (nothing
@@ -703,16 +702,17 @@ _ensure_uv_tool_path() {
 # Headroom (installed by default) — request-level context compression CLI
 #
 # Not a hook and not auto-active: activate per-session with `headroom wrap
-# claude`. RTK stays the active input-side layer; Headroom only stacks on
-# top when explicitly wrapped.
+# <cli>` (e.g. `headroom wrap claude`, `headroom wrap opencode`). RTK stays
+# the active input-side layer; Headroom only stacks on top when explicitly
+# wrapped.
 # ---------------------------------------------------------------------------
 _install_headroom() {
     if command -v headroom &>/dev/null; then
-        info "Headroom already installed: $(headroom --version 2>/dev/null || echo 'unknown version') (inactive until 'headroom wrap claude')"
+        info "Headroom already installed: $(headroom --version 2>/dev/null || echo 'unknown version') (inactive until 'headroom wrap <cli>')"
     elif command -v uv &>/dev/null; then
         info "Installing Headroom CLI..."
         if uv tool install "headroom-ai[proxy]"; then
-            info "Headroom installed: $(headroom --version 2>/dev/null || echo 'unknown version') (inactive until 'headroom wrap claude')"
+            info "Headroom installed: $(headroom --version 2>/dev/null || echo 'unknown version') (inactive until 'headroom wrap <cli>')"
         else
             warn "Headroom install failed, continuing without it"
         fi

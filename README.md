@@ -1,6 +1,6 @@
 # harness-ai
 
-Devcontainer feature that scaffolds AI agent and skill assets (Claude, GitHub Copilot) into a workspace. Each asset is assembled from tool-agnostic content files with per-tool YAML frontmatter injected at runtime.
+Devcontainer feature that scaffolds AI agent and skill assets (Claude Code, OpenCode) into a workspace. Each asset is assembled from tool-agnostic content files with per-tool YAML frontmatter injected at runtime.
 
 Nothing is vendored into the published feature. A single script, `cli.sh`, does the actual work — it's fetched at runtime (pinned to the feature version in the devcontainer, or from `main` for standalone use) and it clones this repo to get `harness.py` and the content it needs. The devcontainer and the `curl | bash` installer run the exact same file.
 
@@ -41,10 +41,10 @@ That's `install` with the defaults: Claude only, RTK + Headroom + openspec on, w
 curl -fsSL https://raw.githubusercontent.com/FabrizioCafolla/harness-ai/main/cli.sh | bash -s -- sync
 ```
 
-Want Copilot too, or wikictl on from the start? Pass flags on the first run instead of editing YAML after:
+Want OpenCode too, or wikictl on from the start? Pass flags on the first run instead of editing YAML after:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/FabrizioCafolla/harness-ai/main/cli.sh | bash -s -- install --tools claude,copilot --wikictl
+curl -fsSL https://raw.githubusercontent.com/FabrizioCafolla/harness-ai/main/cli.sh | bash -s -- install --tools claude,opencode --wikictl
 ```
 
 Full flag reference: [CLI § Options](#options). Full config reference: [Configuration](#configuration).
@@ -149,7 +149,7 @@ Prompts for each setting (tools, install toggles, caveman default, content repo)
 
 ```yaml
 version: 1
-tools: [claude]              # claude, copilot
+tools: [claude]              # claude, opencode
 install:
   rtk: true
   headroom: true
@@ -178,14 +178,12 @@ Edit it directly to change tools, toggle an install, flip a behavior default, or
 
 ---
 
-## Claude Code usability extras
+## Usability extras
 
-Scaffolded automatically when `claude` is in `tools`:
-
-- **Statusline** (`.claude/statusline.sh` + `statusLine` in the `settings.json` template): model, directory, git branch, context window % with color-coded bar, token counts, session cost (API billing only — hidden on Pro/Max plans where `rate_limits` is present), lines added/removed, 5-hour rate limit, and token-saving tool indicators (`⚡rtk` / `🪨caveman`, green = active, dim = installed). The caveman indicator reads `.harness-ai/config.yaml`'s `behavior.caveman` value directly rather than parsing the session transcript (that schema is undocumented and unstable across Claude Code releases) — it shows the configured default, not necessarily the exact current-turn state. Requires `jq` in the container; degrades to a minimal line without it. Skipped if the workspace already has `.claude/statusline.sh` / `settings.json`.
-- **Caveman skill, default-on** ([upstream](https://github.com/JuliusBrussee/caveman)): bundled in the default skills, deployed to `.claude/skills/caveman`. Compresses Claude's prose replies (~65% of output tokens). When `behavior.caveman: true` (the default) and the skill is installed, harness-ai injects an instruction into the AGENTS.md managed block so caveman mode applies from the first message of every session — no `/caveman` invocation needed. Turn it off for a session with "stop caveman", or disable the default entirely with `behavior.caveman: false`. Refresh the bundled copy from upstream with `just update-skills caveman`.
-- **RTK** (`install.rtk` / `--no-rtk`, on by default): installs the binary and injects the `PreToolUse` hook into the Claude hooks template, so every scaffold run merges it into `.claude/settings.json`. Bash commands are then transparently rewritten to token-compressed `rtk` equivalents (60-90% savings on `git status`, test runners, `find`, …). Check savings with `rtk gain`.
-- **Headroom** (`install.headroom` / `--no-headroom`, on by default): installs the CLI via `uv tool install "headroom-ai[proxy]"` (requires `uv`; warns and continues if missing). Compresses the request payload at the API boundary — a different layer than RTK. Not a hook and **not auto-active**: activate per-session with `headroom wrap claude`. Overlaps RTK on the input side while active, so prefer one over the other rather than stacking both.
+- **Statusline** (Claude Code only — `.claude/statusline.sh` + `statusLine` in the `settings.json` template, scaffolded when `claude` is in `tools`): model, directory, git branch, context window % with color-coded bar, token counts, session cost (API billing only — hidden on Pro/Max plans where `rate_limits` is present), lines added/removed, 5-hour rate limit, and token-saving tool indicators (`⚡rtk` / `🪨caveman`, green = active, dim = installed). The caveman indicator reads `.harness-ai/config.yaml`'s `behavior.caveman` value directly rather than parsing the session transcript (that schema is undocumented and unstable across Claude Code releases) — it shows the configured default, not necessarily the exact current-turn state. Requires `jq` in the container; degrades to a minimal line without it. Skipped if the workspace already has `.claude/statusline.sh` / `settings.json`.
+- **Caveman skill, default-on** ([upstream](https://github.com/JuliusBrussee/caveman)): bundled in the default skills, deployed to every active tool's skills dir (`.claude/skills/caveman`, `.opencode/skills/caveman`). Compresses the model's prose replies (~65% of output tokens). When `behavior.caveman: true` (the default) and the skill is installed, harness-ai injects an instruction into the AGENTS.md managed block — read natively by both Claude Code and OpenCode — so caveman mode applies from the first message of every session, no `/caveman` invocation needed. Turn it off for a session with "stop caveman", or disable the default entirely with `behavior.caveman: false`. Refresh the bundled copy from upstream with `just update-skills caveman`.
+- **RTK** (`install.rtk` / `--no-rtk`, on by default): installs the binary; for Claude Code, injects the `PreToolUse` hook into the Claude hooks template so every scaffold run merges it into `.claude/settings.json`; for OpenCode, drops a static plugin (`.opencode/plugins/rtk.ts`, vendored from [rtk-ai/rtk](https://github.com/rtk-ai/rtk)) that self-disables at runtime if the `rtk` binary isn't on PATH. Bash commands are then transparently rewritten to token-compressed `rtk` equivalents (60-90% savings on `git status`, test runners, `find`, …). Check savings with `rtk gain`.
+- **Headroom** (`install.headroom` / `--no-headroom`, on by default): installs the CLI via `uv tool install "headroom-ai[proxy]"` (requires `uv`; warns and continues if missing). Compresses the request payload at the API boundary — a different layer than RTK. Not a hook and **not auto-active**: activate per-session with `headroom wrap <cli>` (e.g. `headroom wrap claude`, `headroom wrap opencode`). Overlaps RTK on the input side while active, so prefer one over the other rather than stacking both.
 - **openspec** (`install.openspec` / `--no-openspec`, on by default): installs the [`@fission-ai/openspec`](https://www.npmjs.com/package/@fission-ai/openspec) CLI via `npm install -g`. Skipped with a warning if `npm` isn't on PATH; never fails the rest of the install.
 
 ---
@@ -197,7 +195,7 @@ A file-based memory layer for AI agents — a wiki of Markdown entries with YAML
 Off by default. Enabling it (`install.wikictl: true` in `.harness-ai/config.yaml`, or `--wikictl` on the CLI) provisions:
 
 - **CLI** — installed via `uv tool install` from the fetched checkout (requires `uv`; warns and continues if missing). Provides `wikictl create|read|list|search|tags|edit|move|delete|schema|index|serve`.
-- **MCP server** — a gated `wikictl` entry (`http://127.0.0.1:9797/mcp/`, started by `wikictl serve`) merged into `.mcp.json`. The server encodes a metadata-first protocol and exposes `get_schema` (the entry metadata contract).
+- **MCP server** — a gated `wikictl` entry (`http://127.0.0.1:9797/mcp/`, started by `wikictl serve`) merged into `.mcp.json` (Claude Code) and, when `opencode` is in `tools`, into `opencode.json`'s `mcp` key. The server encodes a metadata-first protocol and exposes `get_schema` (the entry metadata contract).
 
 The `wikictl-*` skills deploy unconditionally alongside the other default skills, regardless of whether wikictl itself is enabled.
 
@@ -225,8 +223,9 @@ your-content-repo/
 │       └── SKILL.md    # skill content (no frontmatter)
 ├── hooks/              # optional: override default hook templates
 │   ├── claude.json     # replaces config/claude/hooks.json
-│   └── copilot.json    # replaces config/copilot/hooks.json
+│   └── opencode.ts     # replaces config/opencode/rtk-plugin.ts
 ├── mcp.json            # optional: override shared .mcp.json template
+├── opencode.json       # optional: override the opencode.json starter template
 └── agents.harness-ai.md  # optional: extra content appended to the AGENTS.md managed block
 ```
 

@@ -1,0 +1,9 @@
+{
+  "mcp": {
+    "wikictl": {
+      "type": "remote",
+      "url": "http://127.0.0.1:9797/mcp/",
+      "enabled": true
+    }
+  }
+}

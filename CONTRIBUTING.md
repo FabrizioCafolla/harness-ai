@@ -29,11 +29,11 @@ All of these call `harness.py` directly — they bypass `cli.sh`, so they're fas
 | Recipe                 | Reach for it when…                                                                                  |
 | ----------------------- | ------------------------------------------------------------------------------------------------------- |
 | `just test`             | You changed anything in `content/` or `config/claude/` and want the fast, default-path sanity check.   |
-| `just test-copilot`     | You changed anything Copilot-specific (`content/paths.yml`'s `copilot:` block, `config/copilot/`).      |
+| `just test-opencode`    | You changed anything OpenCode-specific (`content/paths.yml`'s `opencode:` block, `config/opencode/`).   |
 | `just test-both`        | You changed hook merging or anything that behaves differently with multiple tools active at once.       |
 | `just test-no-defaults` | You changed the `installDefaults` gate itself, or want to confirm a change doesn't leak bundled content when it's off. |
 | `just test-idempotent`  | You changed the content-hash / lock-file logic (`_compute_content_hash`, `_read_lock`/`_write_lock`), or anything that runs on every scaffold pass and must stay a no-op on a second run with no changes. |
-| `just test-hooks`       | You changed hook precedence or the `hooks/claude.json` / `hooks/copilot.json` content-repo override paths. |
+| `just test-hooks`       | You changed hook precedence or the `hooks/claude.json` / `hooks/opencode.ts` content-repo override paths. |
 | `just test-content-repo`| You changed `_load_content`'s merge logic (agents/skills metadata, or now `paths.yml` — see `harness.py`'s `_load_content`) or anything about how a content repo's skills/agents show up in output. |
 | `just test-e2e`         | You changed `cli.sh` itself: config resolution, install gating, PATH handling, `init-extension`, or anything a real `install`/`sync` invocation exercises that the recipes above don't (they call `harness.py` directly, not `cli.sh`). |
 | `just update-skills`    | You're refreshing a bundled skill that tracks an upstream `ref:` (currently `caveman`, `skill-creator`) — not a general-purpose recipe to run on every change. |
@@ -46,7 +46,7 @@ just test-all   # static checks + every scaffold recipe + the e2e suite
 
 CI (`.github/workflows/test.yml`) runs the same `just test-all` plus wikictl's pytest on every PR, so a green local run means a green pipeline.
 
-Do not chain the individual recipes on one command line (`just test test-copilot ...`): `just` runs a shared dependency once per invocation, so the `clean` step every recipe depends on fires only for the first one — later recipes silently reuse the previous workspace and skip via the content-hash lock. `test-all` sidesteps this by launching each recipe as its own `just` sub-invocation.
+Do not chain the individual recipes on one command line (`just test test-opencode ...`): `just` runs a shared dependency once per invocation, so the `clean` step every recipe depends on fires only for the first one — later recipes silently reuse the previous workspace and skip via the content-hash lock. `test-all` sidesteps this by launching each recipe as its own `just` sub-invocation.
 
 If the change touches `wikictl/`, also run its own suite (separate from the recipes above — `wikictl/` is a standalone package with its own tests):
 

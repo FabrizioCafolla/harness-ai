@@ -94,7 +94,7 @@ else
     assert_file_exists "${ws}/.claude/skills/caveman/SKILL.md" "caveman skill installed (bundled default)"
     assert_contains "${ws}/AGENTS.md" "Default communication mode: caveman" "AGENTS.md has caveman-default instruction (behavior.caveman true)"
     assert_not_contains "${ws}/.mcp.json" "wikictl" "no wikictl MCP entry (install.wikictl false)"
-    assert_file_absent "${ws}/.github" "no copilot output (copilot not in tools)"
+    assert_file_absent "${ws}/.opencode" "no opencode output (opencode not in tools)"
 fi
 
 echo ""
@@ -111,9 +111,10 @@ else
         && pass "pre-existing config.yaml left untouched (copy-once)" \
         || fail "pre-existing config.yaml was modified"
     assert_file_exists "${ws}/.claude/settings.json" "claude output present (claude in tools)"
-    assert_file_exists "${ws}/.github/hooks/hooks.json" "copilot output present (copilot in tools)"
-    assert_file_exists "${ws}/.copilot/config.json" "copilot config present (copilot in tools)"
+    assert_file_exists "${ws}/.opencode/plugins/rtk.ts" "opencode RTK plugin present (opencode in tools)"
+    assert_file_exists "${ws}/opencode.json" "opencode.json present (opencode in tools)"
     assert_contains "${ws}/.mcp.json" "wikictl" "wikictl MCP entry present (install.wikictl true, no --wikictl flag passed)"
+    assert_contains "${ws}/opencode.json" "wikictl" "wikictl MCP entry present in opencode.json (install.wikictl true, opencode in tools)"
     assert_not_contains "${ws}/.claude/settings.json" "rtk hook claude" "RTK hook NOT merged (install.rtk false)"
     assert_not_contains "${ws}/AGENTS.md" "Default communication mode: caveman" "no caveman-default instruction (behavior.caveman false)"
     assert_file_exists "${ws}/.claude/skills/caveman/SKILL.md" "caveman skill still installed (installDefaults true - only the AGENTS.md default is off)"
@@ -128,7 +129,7 @@ if [[ ${rc} -ne 0 ]]; then
     fail "cli.sh install exited ${rc} (see ${ws}.log)"
 else
     assert_file_exists "${ws}/.claude/settings.json" "tools fell through to CLI default [claude] (not set in fixture)"
-    assert_file_absent "${ws}/.github" "copilot NOT scaffolded (tools not set in fixture -> CLI default claude-only)"
+    assert_file_absent "${ws}/.opencode" "opencode NOT scaffolded (tools not set in fixture -> CLI default claude-only)"
     assert_contains "${ws}/.mcp.json" "wikictl" "wikictl MCP entry present (the one key the fixture does set)"
     assert_contains "${ws}/.claude/settings.json" "rtk hook claude" "RTK hook merged (install.rtk not set in fixture -> CLI default true)"
     assert_contains "${ws}/AGENTS.md" "Default communication mode: caveman" "caveman-default instruction present (behavior.caveman not set -> CLI default true)"

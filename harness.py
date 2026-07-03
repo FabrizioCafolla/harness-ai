@@ -325,13 +325,11 @@ def _apply_claude_hooks(ws: pathlib.Path, hooks_path: pathlib.Path) -> None:
     print(f"  [hooks] updated .claude/settings.json[hooks]")
 
 
-def _apply_copilot_hooks(ws: pathlib.Path, hooks_path: pathlib.Path, dest: str) -> None:
-    """Write Copilot hooks template to dest (always overwrite)."""
+def _apply_opencode_hook(ws: pathlib.Path, hooks_path: pathlib.Path, dest: str) -> None:
+    """Write the OpenCode RTK plugin file verbatim (always overwrite, no JSON merge)."""
     try:
         hooks_data = hooks_path.read_text()
-        # Validate JSON before writing
-        json.loads(hooks_data)
-    except (json.JSONDecodeError, OSError) as e:
+    except OSError as e:
         print(f"  [WARN] failed to read hooks template {hooks_path}: {e}")
         return
 
@@ -370,6 +368,37 @@ def _merge_wikictl_mcp(ws: pathlib.Path, feature_dir: pathlib.Path) -> None:
     servers.update(wikictl_servers)
     dst.write_text(json.dumps(data, indent=2) + "\n")
     print(f"  [mcp] added wikictl server to .mcp.json")
+
+
+def _merge_wikictl_mcp_opencode(ws: pathlib.Path, feature_dir: pathlib.Path) -> None:
+    """Merge the gated wikictl server into opencode.json's mcp key (idempotent, additive only)."""
+    snippet = feature_dir / "config" / "mcp.wikictl.opencode.json"
+    if not snippet.exists():
+        print(f"  [WARN] missing config/mcp.wikictl.opencode.json template")
+        return
+    try:
+        wikictl_servers = json.loads(snippet.read_text()).get("mcp", {})
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"  [WARN] failed to read config/mcp.wikictl.opencode.json: {e}")
+        return
+
+    dst = ws / "opencode.json"
+    if dst.exists():
+        try:
+            data = json.loads(dst.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"  [WARN] failed to read opencode.json, skipping wikictl entry: {e}")
+            return
+    else:
+        data = {"$schema": "https://opencode.ai/config.json", "mcp": {}}
+
+    servers = data.setdefault("mcp", {})
+    if all(servers.get(k) == v for k, v in wikictl_servers.items()):
+        print(f"  [skip] opencode.json wikictl entry (already present)")
+        return
+    servers.update(wikictl_servers)
+    dst.write_text(json.dumps(data, indent=2) + "\n")
+    print(f"  [mcp] added wikictl server to opencode.json")
 
 
 def scaffold(
@@ -495,18 +524,21 @@ def scaffold(
         if create_file_hooks:
             hooks_cfg = tool_paths.get("hooks")
             if hooks_cfg:
+                hooks_suffix = pathlib.Path(hooks_cfg["source"]).suffix
                 hooks_src = _resolve_config_file(
                     feature_dir,
                     content_repo_path,
-                    private_relative=f"hooks/{tool}.json",
+                    private_relative=f"hooks/{tool}{hooks_suffix}",
                     public_source=hooks_cfg["source"],
                 )
                 if hooks_src:
                     if tool == "claude":
                         _apply_claude_hooks(ws, hooks_src)
-                    else:
+                    elif tool == "opencode":
                         dest = hooks_cfg.get("dest", f".{tool}/hooks.json")
-                        _apply_copilot_hooks(ws, hooks_src, dest)
+                        _apply_opencode_hook(ws, hooks_src, dest)
+                    else:
+                        print(f"  │  [WARN] no hooks handler registered for tool '{tool}'")
                 else:
                     print(f"  │  [WARN] missing hooks template for '{tool}'")
 
@@ -536,6 +568,30 @@ def scaffold(
     if install_wikictl:
         _merge_wikictl_mcp(ws, feature_dir)
 
+    # --- Shared MCP file (opencode.json, OpenCode's own config/mcp format) ---
+    # Gated on 'opencode' being an active tool: unlike .mcp.json (shared,
+    # mcpServers-shaped), opencode.json is OpenCode-specific and pointless
+    # to create in a workspace that doesn't scaffold that tool.
+    if create_file_mcp and "opencode" in tools:
+        oc_src = _resolve_config_file(
+            feature_dir,
+            content_repo_path,
+            private_relative="opencode.json",
+            public_source="config/opencode.json",
+        )
+        oc_dst = ws / "opencode.json"
+        if oc_src:
+            if oc_dst.exists():
+                print(f"  [skip] opencode.json  (already exists)")
+            else:
+                shutil.copy2(oc_src, oc_dst)
+                print(f"  [copy] config/opencode.json  →  opencode.json")
+        else:
+            print(f"  [WARN] missing config/opencode.json template")
+
+    if install_wikictl and "opencode" in tools:
+        _merge_wikictl_mcp_opencode(ws, feature_dir)
+
     if update_gitignore and gitignore_entries:
         _update_gitignore(ws, list(dict.fromkeys(gitignore_entries)))
 
@@ -562,7 +618,7 @@ if __name__ == "__main__":
         description="Harness AI: assemble AI assets with tool-specific frontmatter."
     )
     parser.add_argument("--workspace", required=True, help="Target workspace directory")
-    parser.add_argument("--tools", default="claude", help="Comma-separated tools to scaffold (e.g. claude,copilot)")
+    parser.add_argument("--tools", default="claude", help="Comma-separated tools to scaffold (e.g. claude,opencode)")
     parser.add_argument("--create-file-mcp", default="true", help="Create .mcp.json config file (true/false)")
     parser.add_argument("--create-file-hooks", default="true", help="Create and manage hooks files (true/false)")
     parser.add_argument("--create-file-setting", default="true", help="Create settings files (true/false)")

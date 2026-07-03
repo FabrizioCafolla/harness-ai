@@ -3,7 +3,7 @@
 # (copy-once); edit that copy, not this template.
 version: 1
 
-# Tools to scaffold skills/agents/hooks for: claude, copilot
+# Tools to scaffold skills/agents/hooks for: claude, opencode
 tools: [claude]
 
 # Optional CLI/MCP binaries installed via uv (or npm, for openspec)
@@ -28,7 +28,7 @@ scaffold:
   installDefaults: true
 
 # Behavioral defaults injected into AGENTS.md at scaffold time (not binary
-# installs — these steer Claude's behavior from the first message of a session)
+# installs — these steer the model's behavior from the first message of a session)
 behavior:
   caveman: true
 

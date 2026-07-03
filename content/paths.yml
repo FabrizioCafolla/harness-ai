@@ -1,19 +1,14 @@
-copilot:
-  base_dir: .github
+opencode:
+  base_dir: .opencode
   agents:
     dir: agents
-    suffix: .agent.md
+    suffix: .md
   skills:
     dir: skills
     filename: SKILL.md
-  extra_files:
-    settings:
-      - source: config/copilot/config.json
-        dest: .copilot/config.json
-        ignore: false
   hooks:
-    source: config/copilot/hooks.json
-    dest: .github/hooks/hooks.json
+    source: config/opencode/rtk-plugin.ts
+    dest: .opencode/plugins/rtk.ts
 
 claude:
   base_dir: .claude

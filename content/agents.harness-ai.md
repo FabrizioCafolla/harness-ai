@@ -10,7 +10,11 @@ harness-ai can provision three token-saving layers, each acting at a different p
 
 - **RTK** (`install.rtk`, default on) — a `PreToolUse` hook that transparently rewrites Bash commands (`git status` → `rtk git status`) to compress *tool output* before it enters context. Automatic, no action needed.
 - **Caveman** (`caveman` skill, default-on behavior via `behavior.caveman`) — compresses *Claude's own output* into terse responses. When `behavior.caveman: true` and the skill is installed, harness-ai injects a default-mode instruction into AGENTS.md so caveman applies from the first message of every session — no `/caveman` invocation needed. Stop with "stop caveman"; disable the default entirely with `behavior.caveman: false`.
-- **Headroom** (`install.headroom`, installed by default) — compresses the *request payload* at the API boundary. Installed but **not a hook and not auto-active**: it is the possible solution for very large contexts / RAG that RTK does not cover. Activate per-session with `headroom wrap claude` (it starts a proxy and routes the session through it). While active it overlaps RTK on the input side — prefer one or the other rather than stacking both.
+- **Headroom** (`install.headroom`, installed by default) — compresses the *request payload* at the API boundary. Installed but **not a hook and not auto-active**: it is the possible solution for very large contexts / RAG that RTK does not cover. Activate per-session with `headroom wrap <cli>` (e.g. `headroom wrap claude`, `headroom wrap opencode`; it starts a proxy and routes the session through it). While active it overlaps RTK on the input side — prefer one or the other rather than stacking both.
+
+### Memory layer (wikictl)
+
+[wikictl](https://github.com/FabrizioCafolla/harness-ai/tree/main/wikictl) is a file-based AI memory system, gated behind `install.wikictl` (off by default). When enabled, harness-ai installs the `wikictl` CLI, adds its MCP server to the workspace's MCP config (`http://127.0.0.1:9797/mcp/` by default) so agents can read/write entries directly, and scaffolds the `wikictl`, `wikictl-read`, `wikictl-create`, `wikictl-edit`, and `wikictl-mcp` skills that teach the metadata-first workflow (scan entry metadata before loading full bodies). Entries are plain Markdown with YAML frontmatter, stored under `wiki/` in the workspace — persistent knowledge (decisions, research, project context) that survives across sessions, browsable via `wikictl serve`'s web UI or queried straight from the CLI (`wikictl list`, `wikictl search`, `wikictl read <name>`).
 
 ### Setup
 
@@ -57,18 +61,18 @@ At runtime `harness.py` merges two sources — private repo wins on key conflict
 
 **Two deployment modes:**
 
-- **copy-once** — file created on first run, skipped if it already exists (preserves user edits): `settings.json`, `settings.local.json`, `.copilot/config.json`, `.mcp.json`
-- **always-managed** — file overwritten on every scaffold run: skills, agents, `AGENTS.md`, `.gitignore`, hooks (`config/claude/hooks.json` → `.claude/settings.json["hooks"]`, `config/copilot/hooks.json` → `.github/hooks/hooks.json`)
+- **copy-once** — file created on first run, skipped if it already exists (preserves user edits): `settings.json`, `settings.local.json`, `opencode.json`, `.mcp.json`
+- **always-managed** — file overwritten on every scaffold run: skills, agents, `AGENTS.md`, `.gitignore`, hooks (`config/claude/hooks.json` → `.claude/settings.json["hooks"]`, `config/opencode/rtk-plugin.ts` → `.opencode/plugins/rtk.ts`)
 
 ### What gets deployed
 
-| Output path                      | Source                        | Mode           |
-| -------------------------------- | ----------------------------- | -------------- |
-| `.mcp.json`                      | `config/mcp.json`             | copy-once      |
-| `.claude/settings.json["hooks"]` | `config/claude/hooks.json`    | always-managed |
-| `.claude/settings.json`          | `config/claude/settings.json` | copy-once      |
-| `.github/hooks/hooks.json`       | `config/copilot/hooks.json`   | always-managed |
-| `.copilot/config.json`           | `config/copilot/config.json`  | copy-once      |
+| Output path                      | Source                          | Mode           |
+| -------------------------------- | -------------------------------- | -------------- |
+| `.mcp.json`                      | `config/mcp.json`               | copy-once      |
+| `.claude/settings.json["hooks"]` | `config/claude/hooks.json`      | always-managed |
+| `.claude/settings.json`          | `config/claude/settings.json`   | copy-once      |
+| `.opencode/plugins/rtk.ts`       | `config/opencode/rtk-plugin.ts` | always-managed |
+| `opencode.json`                  | `config/opencode.json`          | copy-once      |
 
 ### Private content repositories
 
@@ -78,11 +82,11 @@ At runtime `harness.py` merges two sources — private repo wins on key conflict
 
 The private repo can also override config templates by placing files at:
 
-| Private repo path    | Overrides                   |
-| --------------------- | --------------------------- |
-| `mcp.json`           | `config/mcp.json`           |
-| `hooks/claude.json`  | `config/claude/hooks.json`  |
-| `hooks/copilot.json` | `config/copilot/hooks.json` |
+| Private repo path    | Overrides                       |
+| --------------------- | -------------------------------- |
+| `mcp.json`           | `config/mcp.json`               |
+| `hooks/claude.json`  | `config/claude/hooks.json`      |
+| `hooks/opencode.ts`  | `config/opencode/rtk-plugin.ts` |
 
 ### Skill taxonomy
 

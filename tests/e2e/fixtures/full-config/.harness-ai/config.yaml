@@ -2,7 +2,7 @@
 # built-in CLI defaults, so a pass here can only mean the config file was
 # actually read — the run below passes cli.sh install NO flags at all.
 version: 1
-tools: [claude, copilot]
+tools: [claude, opencode]
 install:
   rtk: false
   headroom: false
