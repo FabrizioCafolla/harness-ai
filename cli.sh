@@ -810,8 +810,11 @@ PYEOF
 # [tasks] and devbox's init_hook use for the same flat name->command shape.
 # ---------------------------------------------------------------------------
 _install_custom_tools() {
+    # mapfile, not `read -a`: `read` stops at the first newline regardless of
+    # IFS, which silently truncated any multi-line custom command at its
+    # first embedded `\n`. mapfile -d splits on \x1e across the whole blob.
     local entries=()
-    IFS=$'\x1e' read -r -a entries <<<"${CUSTOM_TOOLS}"
+    mapfile -d $'\x1e' -t entries <<<"${CUSTOM_TOOLS}"
 
     local entry name command
     for entry in "${entries[@]}"; do
