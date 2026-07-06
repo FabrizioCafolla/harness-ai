@@ -87,6 +87,7 @@ The private repo can also override config templates by placing files at:
 | `mcp.json`           | `config/mcp.json`               |
 | `hooks/claude.json`  | `config/claude/hooks.json`      |
 | `hooks/opencode.ts`  | `config/opencode/rtk-plugin.ts` |
+| `custom.yaml`        | merged into `install.custom` (content repo wins on name collision), run on both `install` and `sync` |
 
 ### Skill taxonomy
 

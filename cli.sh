@@ -761,8 +761,51 @@ _install_openspec() {
 }
 
 # ---------------------------------------------------------------------------
+# Content-repo custom tools (optional) — a content repo can ship its own
+# custom.yaml (same flat name->command shape as install.custom) so its
+# commands travel with the repo into every workspace that extends it,
+# instead of being copy-pasted into each workspace's config.yaml. Merged
+# on top of the workspace's own CUSTOM_TOOLS blob; on a name collision the
+# content repo's command wins (it is merged in last).
+# ---------------------------------------------------------------------------
+_merge_content_custom() {
+    local content_repo_dir="$1"
+    local custom_file="${content_repo_dir}/custom.yaml"
+    [[ -f "${custom_file}" ]] || return 0
+
+    local merged
+    merged="$("${PYTHON}" - "${custom_file}" 3<<<"${CUSTOM_TOOLS}" <<'PYEOF'
+import os
+import sys
+
+import yaml
+
+custom_file = sys.argv[1]
+base_blob = os.fdopen(3).read().rstrip("\n")
+
+merged = {}
+for entry in base_blob.split("\x1e"):
+    if not entry:
+        continue
+    name, command = entry.split("\x1f", 1)
+    merged[name] = command
+
+with open(custom_file) as f:
+    overrides = yaml.safe_load(f) or {}
+for name, command in overrides.items():
+    merged[name] = command
+
+print("\x1e".join(f"{name}\x1f{command}" for name, command in merged.items()))
+PYEOF
+    )" || die "Failed to parse ${custom_file} — check it is valid YAML."
+
+    CUSTOM_TOOLS="${merged}"
+}
+
+# ---------------------------------------------------------------------------
 # Custom tools (optional) — arbitrary extra install commands declared under
-# install.custom in config.yaml. No already-installed check (see design.md
+# install.custom in config.yaml (merged with the content repo's custom.yaml,
+# see _merge_content_custom above). No already-installed check (see design.md
 # D3): commands are expected to be self-idempotent, same contract mise's
 # [tasks] and devbox's init_hook use for the same flat name->command shape.
 # ---------------------------------------------------------------------------
@@ -825,7 +868,6 @@ cmd_install() {
     [[ "${INSTALL_HEADROOM}" == "true" ]] && _install_headroom
     [[ "${INSTALL_WIKICTL}" == "true" ]] && _install_wikictl
     [[ "${INSTALL_OPENSPEC}" == "true" ]] && _install_openspec
-    [[ -n "${CUSTOM_TOOLS}" ]] && _install_custom_tools
     # uv's own supported mechanism for making `uv tool install`ed binaries
     # resolvable in *new* shells (this run's PATH export above only covers
     # the current script). Best-effort: never fails the install.
@@ -838,6 +880,10 @@ cmd_install() {
         _clone_content_repo "${CONTENT_REPO}" "${CONTENT_REPO_REF}" "${TEMP_DIR}/content-repo"
         CONTENT_REPO_LOCAL_PATH="${TEMP_DIR}/content-repo"
     fi
+    # Custom tools run after the content repo is available so its custom.yaml
+    # (if any) is already merged into CUSTOM_TOOLS.
+    [[ -n "${CONTENT_REPO_LOCAL_PATH:-}" ]] && _merge_content_custom "${CONTENT_REPO_LOCAL_PATH}"
+    [[ -n "${CUSTOM_TOOLS}" ]] && _install_custom_tools
 
     # The lock hash is identity-based (harness-ai HEAD SHA + content repo SHA),
     # so uncommitted local changes never alter it: a local checkout always forces.
@@ -881,6 +927,8 @@ cmd_sync() {
         _clone_content_repo "${CONTENT_REPO}" "${CONTENT_REPO_REF}" "${TEMP_DIR}/content-repo"
         CONTENT_REPO_LOCAL_PATH="${TEMP_DIR}/content-repo"
     fi
+    [[ -n "${CONTENT_REPO_LOCAL_PATH:-}" ]] && _merge_content_custom "${CONTENT_REPO_LOCAL_PATH}"
+    [[ -n "${CUSTOM_TOOLS}" ]] && _install_custom_tools
 
     echo ""
     _run_scaffold
