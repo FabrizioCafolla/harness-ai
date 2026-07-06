@@ -306,3 +306,7 @@ The recipes above call `harness.py` directly (via the `{{uv}}` variable) — use
 | `wikictl-enabled/`   | `install.wikictl: true`                   | wikictl actually installs, resolves on `PATH`, and `wikictl serve` boots and responds on port 9797 — not just that the config flag parsed |
 
 Each fixture is copied into a scratch workspace under `tests/e2e/.scratch/` (gitignored, removed at the end of the run), never mutated in place. Add a new fixture by creating `tests/e2e/fixtures/<name>/.harness-ai/config.yaml` (or leaving it out, for a no-config-style case) and a matching block in `run.sh`.
+
+## Releasing
+
+Every change pushed to `main` must bump `version` in `devcontainer-feature.json`. This is the identity half of the sync hash (`harness-ai HEAD SHA + content repo SHA`) and the version devcontainer tooling resolves against — a `main` that moved without a version bump is indistinguishable from one that didn't. Bump patch/minor/major per semver depending on the change.
