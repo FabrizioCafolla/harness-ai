@@ -1,6 +1,6 @@
 {
   "id": "harness-ai",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "name": "Harness AI",
   "description": "Scaffolds AI agent and skill assets (Claude Code, OpenCode) into the workspace. All configuration — tools, install toggles, content repo — lives in the workspace's .harness-ai/config.yaml, the single source of truth; this feature has no options. Provisions at container create via a config-driven CLI (harnessai) and re-syncs on every start when content has changed.",
   "documentationURL": "https://containers.dev/features",

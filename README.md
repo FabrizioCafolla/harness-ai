@@ -1,6 +1,6 @@
 # harness-ai
 
-Devcontainer feature that scaffolds AI agent and skill assets (Claude Code, OpenCode) into a workspace. Each asset is assembled from tool-agnostic content files with per-tool YAML frontmatter injected at runtime.
+[harness-ai](https://github.com/FabrizioCafolla/harness-ai) is a devcontainer feature that assembles AI skills, agents, and hooks into the workspace at container startup. It reads content from one or two repositories, injects per-tool frontmatter, and writes output to tool-specific paths.
 
 Nothing is vendored into the published feature. A single script, `cli.sh`, does the actual work — it's fetched at runtime (pinned to the feature version in the devcontainer, or from `main` for standalone use) and it clones this repo to get `harness.py` and the content it needs. The devcontainer and the `curl | bash` installer run the exact same file.
 
@@ -58,7 +58,7 @@ Full flag reference: [CLI § Options](#options). Full config reference: [Configu
 harness-ai requires **bash** and **Python 3.9+** (which includes `venv` out of the box).
 
 | Base                   | Supported | Notes                                          |
-| ---------------------- | --------- | ----------------------------------------------- |
+| ---------------------- | --------- | ---------------------------------------------- |
 | Debian / Ubuntu        | Yes       | All `mcr.microsoft.com/devcontainers/*` images |
 | RHEL / Fedora / CentOS | Yes       | bash and python3 available via dnf/yum         |
 | Alpine                 | No        | No bash by default (busybox sh only)           |
@@ -121,11 +121,11 @@ bash harness-ai.sh init-extension <path> [--name <str>]
 
 #### Subcommands
 
-| Subcommand             | Description                                                                                                        |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Subcommand              | Description                                                                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `install`               | Resolve config, install enabled binaries (RTK/Headroom/wikictl/openspec/custom), run the scaffold. Default when omitted. |
-| `sync`                  | Fast path: skip binary installs, hash-check before re-scaffolding.                                                  |
-| `init-extension <path>` | Scaffold a minimal starter content-repo extension at `<path>` — see [Extending harness-ai](#extending-harness-ai). |
+| `sync`                  | Fast path: skip binary installs, hash-check before re-scaffolding.                                                       |
+| `init-extension <path>` | Scaffold a minimal starter content-repo extension at `<path>` — see [Extending harness-ai](#extending-harness-ai).       |
 
 #### Options
 
@@ -149,7 +149,7 @@ Prompts for each setting (tools, install toggles, caveman default, content repo)
 
 ```yaml
 version: 1
-tools: [claude]              # claude, opencode
+tools: [claude] # claude, opencode
 install:
   rtk: true
   headroom: true
@@ -158,7 +158,7 @@ install:
   # Arbitrary extra install commands (run as `bash -c "<command>"`, skipped
   # by `sync`). Must be self-idempotent — no already-installed check is done.
   custom:
-    speckit: "uv tool install speckit-cli"
+    speckit: 'uv tool install speckit-cli'
 scaffold:
   createFileMCP: true
   createFileHooks: true
@@ -168,7 +168,7 @@ scaffold:
 behavior:
   caveman: true
 contentRepo:
-  url: ""
+  url: ''
   ref: main
 ```
 
@@ -274,3 +274,27 @@ bash harness-ai.sh install --content-repo-local-path ./my-extension
 ```
 
 `hooks/`, `mcp.json`, and `paths.yml` overrides are supported but optional/advanced — `init-extension` doesn't scaffold them; see [AGENTS.md](./AGENTS.md#content-repo-format) for their format. For the skill-naming and taxonomy conventions your new skills should follow, and for contributing to harness-ai's own code, see [AGENTS.md](./AGENTS.md) and [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+## Skill taxonomy
+
+Skills are organized by category and subcategory. Every entry in `metadata.yml` carries `category` and `subcategory` fields.
+
+Plain, single-word subcategories on purpose — grouping follows what a skill actually does, not a target count.
+
+| Category        | Subcategory     | Typical prefix                           |
+| --------------- | --------------- | ---------------------------------------- |
+| `engineering`   | `coding`        | `developer-*`                            |
+| `engineering`   | `architecture`  | `developer-*`, `advisor-*`               |
+| `engineering`   | `operations`    | `advisor-*`                              |
+| `engineering`   | `documentation` | `advisor-*`                              |
+| `communication` | `content`       | `advisor-*`                              |
+| `communication` | `messaging`     | `advisor-*`                              |
+| `communication` | `style`         | `caveman`                                |
+| `reasoning`     | `brainstorming` | `advisor-*`                              |
+| `reasoning`     | `research`      | `advisor-*`, `research-scout`            |
+| `reasoning`     | `speaking`      | `advisor-*`                              |
+| `tools`         | `cli`           | `developer-github-cli`, `wikictl-*`      |
+| `meta`          | `creation`      | `skill-creator`, `agent-creator`         |
+| `meta`          | `review`        | `advisor-work-review`                    |
+| `coaching`      | `planning`      | `advisor-*` (private, personal-training) |
+| `coaching`      | `support`       | `advisor-*` (private, personal-training) |

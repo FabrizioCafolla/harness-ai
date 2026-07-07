@@ -4,14 +4,6 @@
 
 **Generated files must never be edited directly.** On the next scaffold run (`harnessai sync` on container start, or `harnessai install`) they are fully regenerated — any manual change is lost. To change a skill or agent: edit the source in the content repo, not the output. Hooks are also harness-managed: customize them via the content repo override.
 
-### Token-saving harness
-
-harness-ai can provision three token-saving layers, each acting at a different point:
-
-- **RTK** (`install.rtk`, default on) — a `PreToolUse` hook that transparently rewrites Bash commands (`git status` → `rtk git status`) to compress *tool output* before it enters context. Automatic, no action needed.
-- **Caveman** (`caveman` skill, default-on behavior via `behavior.caveman`) — compresses *Claude's own output* into terse responses. When `behavior.caveman: true` and the skill is installed, harness-ai injects a default-mode instruction into AGENTS.md so caveman applies from the first message of every session — no `/caveman` invocation needed. Stop with "stop caveman"; disable the default entirely with `behavior.caveman: false`.
-- **Headroom** (`install.headroom`, installed by default) — compresses the *request payload* at the API boundary. Installed but **not a hook and not auto-active**: it is the possible solution for very large contexts / RAG that RTK does not cover. Activate per-session with `headroom wrap <cli>` (e.g. `headroom wrap claude`, `headroom wrap opencode`; it starts a proxy and routes the session through it). While active it overlaps RTK on the input side — prefer one or the other rather than stacking both.
-
 ### Memory layer (wikictl)
 
 [wikictl](https://github.com/FabrizioCafolla/harness-ai/tree/main/wikictl) is a file-based AI memory system, gated behind `install.wikictl` (off by default). When enabled, harness-ai installs the `wikictl` CLI, adds its MCP server to the workspace's MCP config (`http://127.0.0.1:9797/mcp/` by default) so agents can read/write entries directly, and scaffolds the `wikictl`, `wikictl-read`, `wikictl-create`, `wikictl-edit`, and `wikictl-mcp` skills that teach the metadata-first workflow (scan entry metadata before loading full bodies). Entries are plain Markdown with YAML frontmatter, stored under `wiki/` in the workspace — persistent knowledge (decisions, research, project context) that survives across sessions, browsable via `wikictl serve`'s web UI or queried straight from the CLI (`wikictl list`, `wikictl search`, `wikictl read <name>`).
@@ -51,64 +43,3 @@ GITHUB_TOKEN=$(gh auth token) bash cli.sh install \
   --tools claude \
   --content-repo https://github.com/your-org/your-private-skills-repo
 ```
-
-### Assembly model
-
-At runtime `harness.py` merges two sources — private repo wins on key conflicts:
-
-1. **harness-ai** (public) — bundled `content/skills/`, `content/agents/`, `config/`
-2. **Content repo** (private, optional) — skills, agents, and optional hooks/mcp overrides
-
-**Two deployment modes:**
-
-- **copy-once** — file created on first run, skipped if it already exists (preserves user edits): `settings.json`, `settings.local.json`, `opencode.json`, `.mcp.json`
-- **always-managed** — file overwritten on every scaffold run: skills, agents, `AGENTS.md`, `.gitignore`, hooks (`config/claude/hooks.json` → `.claude/settings.json["hooks"]`, `config/opencode/rtk-plugin.ts` → `.opencode/plugins/rtk.ts`)
-
-### What gets deployed
-
-| Output path                      | Source                          | Mode           |
-| -------------------------------- | -------------------------------- | -------------- |
-| `.mcp.json`                      | `config/mcp.json`               | copy-once      |
-| `.claude/settings.json["hooks"]` | `config/claude/hooks.json`      | always-managed |
-| `.claude/settings.json`          | `config/claude/settings.json`   | copy-once      |
-| `.opencode/plugins/rtk.ts`       | `config/opencode/rtk-plugin.ts` | always-managed |
-| `opencode.json`                  | `config/opencode.json`          | copy-once      |
-
-### Private content repositories
-
-| Repository                                                                    | Purpose                                                                                                     |
-| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [harness-ai-private](https://github.com/FabrizioCafolla/harness-ai-private) | Personal `advisor-*` skills and agents for Fabrizio Cafolla — voice, decision patterns, communication style |
-
-The private repo can also override config templates by placing files at:
-
-| Private repo path    | Overrides                       |
-| --------------------- | -------------------------------- |
-| `mcp.json`           | `config/mcp.json`               |
-| `hooks/claude.json`  | `config/claude/hooks.json`      |
-| `hooks/opencode.ts`  | `config/opencode/rtk-plugin.ts` |
-| `custom.yaml`        | merged into `install.custom` (content repo wins on name collision), run on both `install` and `sync` |
-
-### Skill taxonomy
-
-Skills are organized by category and subcategory. Every entry in `metadata.yml` carries `category` and `subcategory` fields.
-
-Plain, single-word subcategories on purpose — grouping follows what a skill actually does, not a target count.
-
-| Category        | Subcategory   | Typical prefix                        |
-| --------------- | ------------- | --------------------------------------- |
-| `engineering`   | `coding`      | `developer-*`                          |
-| `engineering`   | `architecture`| `developer-*`, `advisor-*`             |
-| `engineering`   | `operations`  | `advisor-*`                            |
-| `engineering`   | `documentation`| `advisor-*`                           |
-| `communication` | `content`     | `advisor-*`                            |
-| `communication` | `messaging`   | `advisor-*`                            |
-| `communication` | `style`       | `caveman`                              |
-| `reasoning`     | `brainstorming`| `advisor-*`                           |
-| `reasoning`     | `research`    | `advisor-*`, `research-scout`          |
-| `reasoning`     | `speaking`    | `advisor-*`                            |
-| `tools`         | `cli`         | `developer-github-cli`, `wikictl-*`    |
-| `meta`          | `creation`    | `skill-creator`, `agent-creator`       |
-| `meta`          | `review`      | `advisor-work-review`                  |
-| `coaching`      | `planning`    | `advisor-*` (private, personal-training) |
-| `coaching`      | `support`     | `advisor-*` (private, personal-training) |
