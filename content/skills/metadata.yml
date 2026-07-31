@@ -9,6 +9,11 @@ default:
     metadata:
       author: Fabrizio Cafolla
       version: "1.0"
+  # Minimal on purpose (name/description only, no license/metadata.author —
+  # not part of the informal .agents/ convention). Per-entry `agents:` blocks
+  # are optional: when absent, the `agents` profile falls back to the
+  # claude/opencode block's name+description. See design.md D4.
+  agents:
 
 skills:
   agent-creator:

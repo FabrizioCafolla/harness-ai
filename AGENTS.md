@@ -4,10 +4,22 @@ harness-ai is a devcontainer feature and standalone CLI that scaffolds AI agent 
 
 ## Repository Layout
 
+A scaffolded **workspace** (not this repo) additionally gets a canonical store for `default`/content-repo output, tracked in git:
+
+```
+<workspace>/.harness-ai/
+├── config.yaml              # workspace config (tracked)
+├── lock, manifest.json      # harness-ai's own run state (gitignored)
+├── skills/<source>/<key>/   # one <profile>.SKILL.md per active tool profile + references/
+└── agents/<source>/<key>/   # one <profile>.md per active tool profile
+```
+
+`.claude/skills/<key>`, `.opencode/skills/<key>`, and `.agents/skills/<key>` (and the agent equivalents) are symlinks into that store — see README's ["Sources and the canonical store"](README.md#sources-and-the-canonical-store). `local` content (this workspace's own `.agents/skills/`/`.agents/agents/`) has no canonical-store entry — the author's file is symlinked to directly.
+
 ```
 harness-ai/
 ├── content/                    # Tool-agnostic Markdown content
-│   ├── paths.yml               # Output paths per tool (claude / opencode)
+│   ├── paths.yml               # Output paths per tool (claude / opencode / agents — the always-on .agents target)
 │   ├── agents/
 │   │   ├── metadata.yml        # Per-tool frontmatter for each agent
 │   │   └── <key>.md            # Agent body (no frontmatter)
@@ -81,7 +93,19 @@ Nothing about harness-ai is vendored into the published feature. `cli.sh` is the
 - `content/agents.harness-ai.md` static content appended to every scaffolded AGENTS.md managed block
 - Remote content-repo files merged on top (same key = remote wins, universally — `paths.yml` included, no exceptions); a content repo's own `agents.harness-ai.md`, if present, is appended after the bundled one
 
-## Adding an Agent
+## Adding an Agent or Skill
+
+Three source kinds, three different workflows:
+
+| Source | Who edits it | Frontmatter | Steps |
+| --- | --- | --- | --- |
+| `default` | harness-ai's own PRs | in `metadata.yml`, never in the body | see below |
+| a content repo | that repo's own PRs | same shape as `default` — a content repo is structurally identical to `content/` | same steps, against the content repo's own `agents/`/`skills/` tree |
+| `local` (a consuming workspace) | that workspace directly | **inline**, in the file itself | drop a frontmatter'd `SKILL.md`/`<key>.md` under `.agents/skills/<key>/` or `.agents/agents/<key>.md` — nothing to register, harness-ai discovers it automatically on the next scaffold |
+
+The **"no YAML frontmatter in the body"** rule below is scoped to `default`/content-repo content only — `local` is the opposite on purpose (inline frontmatter, no `metadata.yml`), matching how Claude Code's own Skill/Agent authoring tools write files directly into a workspace.
+
+### Adding an Agent (`default` / content repo)
 
 1. Create `content/agents/<key>.md` Markdown body only, no frontmatter
 2. Register it in `content/agents/metadata.yml`:
@@ -101,7 +125,9 @@ agents:
 
 OpenCode's `permission` key (`edit`/`bash`/`webfetch`: `allow`/`deny`/`ask`) gates broad tool *categories*, not an arbitrary allowlist like Claude's `allowedTools` — there's no lossless 1:1 mapping. Omit `permission` for full access (the default), or set it explicitly per agent if it needs restricting.
 
-## Adding a Skill
+An optional `agents:` block (name + description only — that's all the always-on `.agents` target renders) can be added alongside `opencode:`/`claude:` if you want the `.agents/agents/<key>.md` rendering to differ from Claude/OpenCode's. Leave it out and it falls back to the `claude:` (or `opencode:`) block's name/description automatically.
+
+### Adding a Skill (`default` / content repo)
 
 ### Naming convention
 
@@ -134,6 +160,19 @@ skills:
 ```
 
 4. If the skill body is refreshed from an upstream source, add a `ref:` key to its `metadata.yml` entry pointing at the raw or blob-view SKILL.md URL — see [Updating externally-sourced skills](#updating-externally-sourced-skills).
+
+An optional `agents:` block (name + description only, same as agents above) can be added if the `.agents/skills/<key>/SKILL.md` rendering should differ from Claude/OpenCode's; otherwise it's derived automatically from the `claude:` block.
+
+### Adding a `local` skill or agent (a consuming workspace)
+
+No registration step: drop the file where the tool directories will symlink to it.
+
+```
+.agents/skills/my-project-skill/SKILL.md   # frontmatter inline — name/description in the file
+.agents/agents/my-project-agent.md          # frontmatter inline
+```
+
+The next `harnessai install`/`sync` discovers it (any real, non-symlinked file under those two directories) and symlinks it into every active tool's directory. See [README's "Local skills"](README.md#local-skills) for the full model and the collision rule with `default`/content-repo keys of the same name.
 
 ### Taxonomy
 
@@ -192,7 +231,9 @@ Plain, single-word subcategories on purpose — the previous `-and-`-joined labe
 
 ## Content Repo Format
 
-Private or supplemental content repos can contain:
+A workspace can point at N named content repos (`contentRepos: [{name, url, ref}, ...]` in `.harness-ai/config.yaml`) — each `name` becomes its own source, merged in config-list order (later wins on key collision), and its own subfolder under the canonical store (`.harness-ai/skills/<name>/`). `name` is required, must be unique, and can't be `default` or `local` (reserved for the bundled and workspace-local sources).
+
+Each repo, individually, follows the same layout as `content/`:
 
 ```text
 your-content-repo/

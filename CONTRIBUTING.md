@@ -34,8 +34,11 @@ All of these call `harness.py` directly — they bypass `cli.sh`, so they're fas
 | `just test-no-defaults` | You changed the `installDefaults` gate itself, or want to confirm a change doesn't leak bundled content when it's off. |
 | `just test-idempotent`  | You changed the content-hash / lock-file logic (`_compute_content_hash`, `_read_lock`/`_write_lock`), or anything that runs on every scaffold pass and must stay a no-op on a second run with no changes. |
 | `just test-hooks`       | You changed hook precedence or the `hooks/claude.json` / `hooks/opencode.ts` content-repo override paths. |
-| `just test-content-repo`| You changed `_load_content`'s merge logic (agents/skills metadata, or now `paths.yml` — see `harness.py`'s `_load_content`) or anything about how a content repo's skills/agents show up in output. |
-| `just test-e2e`         | You changed `cli.sh` itself: config resolution, install gating, PATH handling, `init-extension`, or anything a real `install`/`sync` invocation exercises that the recipes above don't (they call `harness.py` directly, not `cli.sh`). |
+| `just test-content-repo`| You changed `_load_content`'s merge logic (agents/skills metadata, or `paths.yml`) or anything about how a content repo's skills/agents show up in output. |
+| `just test-symlinks`    | You changed the canonical-store render step or the tool-dir symlink logic (`_render_skill`/`_render_agent`/`_make_symlink`) for `default`/`contentRepos` sources. |
+| `just test-local-source`| You changed `_scan_local_source`, the `local`-linking functions, or `_cleanup_stale`'s no-delete guarantee for `local` — especially the self-reference guard (design.md D9). |
+| `just test-category-filter` | You changed `_apply_skill_filter` or the `skills.include`/`skills.exclude` config/CLI plumbing. |
+| `just test-e2e`         | You changed `cli.sh` itself: config resolution, install gating, PATH handling, `init-extension`, multi-repo cloning, or anything a real `install`/`sync` invocation exercises that the recipes above don't (they call `harness.py` directly, not `cli.sh`). |
 | `just update-skills`    | You're refreshing a bundled skill that tracks an upstream `ref:` (currently `caveman`, `skill-creator`) — not a general-purpose recipe to run on every change. |
 
 Before opening a PR that touches `cli.sh`, `harness.py`, or `content/`, run the full local suite:

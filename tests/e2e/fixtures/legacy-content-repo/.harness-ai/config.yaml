@@ -1,0 +1,10 @@
+# legacy-content-repo fixture: the OLD singular `contentRepo` key (pre-this-
+# change) still works as sugar for a one-entry `contentRepos` list (name
+# derived from the URL), with a deprecation warning — see design.md D3's
+# back-compat shim. Points at harness-ai's own public repo purely because
+# it's guaranteed to exist and clone; its content doesn't follow the
+# content-repo layout, which is irrelevant to what this fixture checks
+# (install succeeds + the warning fires + bundled defaults still work).
+contentRepo:
+  url: https://github.com/FabrizioCafolla/harness-ai.git
+  ref: main

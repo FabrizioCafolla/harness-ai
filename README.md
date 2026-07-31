@@ -167,12 +167,19 @@ scaffold:
   installDefaults: true
 behavior:
   caveman: true
-contentRepo:
-  url: ''
-  ref: main
+contentRepos: []
+skills:
+  include:
+    categories: []
+    keys: []
+  exclude:
+    categories: []
+    keys: []
 ```
 
-Edit it directly to change tools, toggle an install, flip a behavior default, or point at a content repo. No rebuild needed — just run `harnessai install` (or wait for the next `harnessai sync`).
+Edit it directly to change tools, toggle an install, flip a behavior default, or point at one or more content repos. No rebuild needed — just run `harnessai install` (or wait for the next `harnessai sync`).
+
+**Skill selection** (`skills.include`/`skills.exclude`, or the matching `--skills-include-categories`/`--skills-include-keys`/`--skills-exclude-categories`/`--skills-exclude-keys` flags): filters which `default`/content-repo skills get installed, by category, `category.subcategory`, or explicit key. Empty `include` means "install everything" (today's default). `exclude` is checked after `include`, so it can carve one key out of an otherwise-included category. Agents are never filtered this way. `local` skills aren't gated by `include`/category rules at all (they're always installed if present) — only `exclude.keys` can remove one by name. See the [Skill taxonomy](#skill-taxonomy) table below for valid category/subcategory values.
 
 `.harness-ai/lock` and `.harness-ai/manifest.json` live alongside `config.yaml` in the same directory — only `config.yaml` is tracked in git; the other two are harness-ai's own state and are gitignored.
 
@@ -206,9 +213,9 @@ install:
 
 ---
 
-## Content repo
+## Content repos
 
-Point at any GitHub repo that follows the `content/` structure to merge additional (or private) agents and skills on top of the bundled defaults.
+Point at one or more GitHub repos that follow the `content/` structure to merge additional (or private) agents and skills on top of the bundled defaults. Each is a named **source** — see [Sources and the canonical store](#sources-and-the-canonical-store) for how they're materialized into the workspace.
 
 ### Layout
 
@@ -224,22 +231,31 @@ your-content-repo/
 ├── hooks/              # optional: override default hook templates
 │   ├── claude.json     # replaces config/claude/hooks.json
 │   └── opencode.ts     # replaces config/opencode/rtk-plugin.ts
-├── mcp.json            # optional: override shared .mcp.json template
-├── opencode.json       # optional: override the opencode.json starter template
+├── mcp.json             # optional: override shared .mcp.json template
+├── opencode.json        # optional: override the opencode.json starter template
+├── paths.yml             # optional: per-tool output path overrides
 └── agents.harness-ai.md  # optional: extra content appended to the AGENTS.md managed block
 ```
 
-You can include any subset anything absent falls back to bundled defaults (unless `installDefaults: false` / `--no-defaults`). Hooks and MCP overrides are full replacements, not merges. Remote content wins on key conflicts with the bundled defaults.
+You can include any subset anything absent falls back to bundled defaults (unless `installDefaults: false` / `--no-defaults`). Hooks and MCP overrides are full replacements, not merges. On a same-key collision, later sources win: `default` → `contentRepos` in the order listed → `local` (below) always last.
 
 ### Using it
 
-Set the content repo in `.harness-ai/config.yaml` (not as a feature option there are no feature options):
+Set one or more named content repos in `.harness-ai/config.yaml`:
 
 ```yaml
-contentRepo:
-  url: https://github.com/my-org/ai-content
-  ref: main
+contentRepos:
+  - name: my-private-content
+    url: https://github.com/my-org/ai-content
+    ref: main
+  - name: another-team-content
+    url: https://github.com/other-org/more-content
+    ref: main
 ```
+
+`name` is required and must be unique — it's the subfolder under the canonical store (`.harness-ai/skills/<name>/`) and the label used in the sync report. `default` and `local` are reserved (harness-ai rejects a config that reuses them).
+
+**Migrating from the old singular key:** `contentRepo: {url, ref}` still works — it's read as sugar for a one-entry `contentRepos` list (name derived from the URL) and prints a deprecation warning. No action needed on upgrade; switch to `contentRepos` whenever convenient.
 
 For private repos, set `GITHUB_TOKEN` as a devcontainer secret:
 
@@ -249,13 +265,74 @@ For private repos, set `GITHUB_TOKEN` as a devcontainer secret:
 }
 ```
 
-Auth resolves automatically: `GITHUB_TOKEN` env var → `gh` CLI token → anonymous (public repos only).
+Auth resolves automatically: `GITHUB_TOKEN` env var → `gh` CLI token → anonymous (public repos only). It's shared across every configured repo (no per-repo auth).
 
-From the CLI, the equivalent is a flag instead of YAML:
+From the CLI, the equivalent is comma-separated flags instead of YAML:
 
 ```bash
-GITHUB_TOKEN=$(gh auth token) bash harness-ai.sh install --content-repo https://github.com/my-org/ai-content
+GITHUB_TOKEN=$(gh auth token) bash harness-ai.sh install \
+  --content-repo https://github.com/my-org/ai-content,https://github.com/other-org/more-content \
+  --content-repo-name my-private-content,another-team-content
 ```
+
+---
+
+## Local skills
+
+A **`local`** source formalizes hand-authoring a skill or agent directly in the *consuming* workspace, no content repo needed:
+
+```
+.agents/
+├── skills/
+│   └── my-skill/
+│       ├── SKILL.md       # frontmatter INLINE (name/description in the file itself)
+│       └── references/    # optional, used as-is
+└── agents/
+    └── my-agent.md         # frontmatter inline
+```
+
+Unlike `default`/content-repo skills, a `local` file's frontmatter lives directly in the file (the way Claude Code's own Skill/Agent authoring tools write them) — there's no `metadata.yml` and no per-tool rendering step. harness-ai discovers every real (non-symlink) `SKILL.md`/`<key>.md` under `.agents/skills/`/`.agents/agents/` on each run and symlinks its whole skill directory (or the agent file) straight into every active tool's directory (`.claude/skills/<key>`, `.opencode/skills/<key>`, when active). It's the one source harness-ai **never deletes or rewrites** — only a dangling tool-dir symlink whose local file disappeared gets cleaned up; the authored file itself is always yours.
+
+`local` always wins on a same-key collision with `default`/content-repo sources — a workspace can deliberately override a bundled or repo skill by authoring the same key locally.
+
+Category/subcategory filtering (below) doesn't apply to `local` skills (they carry no metadata for it) — `skills.exclude.keys` can still remove one by name.
+
+---
+
+## Public vs. private project setup
+
+Three shapes, combinable:
+
+- **Public / bundled-only** — no `contentRepos`. Just the bundled `content/` (developer/advisor skills, taxonomy) plus whatever `local` skills the workspace authors itself. The default for a new workspace.
+- **Private content repo(s)** — one or more `contentRepos` entries pointing at a private (or public) repo with your own/your team's skills and agents, merged on top of the bundled defaults. Set `GITHUB_TOKEN` for private repos.
+- **Workspace-only `local` skills** — no content repo at all, just hand-authored `.agents/skills/<key>/SKILL.md` files. Useful for skills that are specific to one project and not worth publishing anywhere.
+
+Most real setups combine all three: bundled defaults + a team's private repo + a handful of project-specific `local` skills the bundled/private content doesn't cover.
+
+## Sources and the canonical store
+
+`default`/content-repo skills and agents are rendered once per active tool profile into a canonical store, tracked in git:
+
+```
+.harness-ai/
+├── skills/<source>/<key>/
+│   ├── claude.SKILL.md      # rendered with the claude frontmatter block
+│   ├── opencode.SKILL.md    # only if opencode is active
+│   ├── agents.SKILL.md      # always (the .agents target is always-on, see below)
+│   └── references/          # copied once from the source, shared across profiles
+└── agents/<source>/<key>/
+    ├── claude.md
+    ├── opencode.md
+    └── agents.md
+```
+
+`.claude/skills/<key>/SKILL.md`, `.opencode/skills/<key>/SKILL.md`, and `.agents/skills/<key>/SKILL.md` become symlinks into that store instead of independent copies — one canonical render per tool profile, referenced everywhere it's needed. This is tracked in git (not gitignored) so a fresh clone has working skills immediately, and a PR diff shows exactly what content changed and from where.
+
+`local` content works differently: there's no canonical store entry for it, and no per-tool rendering — the author's own file *is* the canonical artifact, and every tool directory symlinks straight to it (see [Local skills](#local-skills) above). Don't assume the canonical-store model applies everywhere; it's specific to `default`/`contentRepos`.
+
+**`.agents` is always populated**, independent of `tools:` — unlike `claude`/`opencode`, which stay opt-in. It's the emerging cross-tool convention other tools read directly.
+
+**Prerequisite:** symlinked output requires `core.symlinks=true` in the git checkout — git's default on Linux/macOS (every devcontainer, unconditionally); on native Windows it needs Developer Mode/admin (`git config core.symlinks true`) for the standalone-CLI case.
 
 ---
 

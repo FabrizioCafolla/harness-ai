@@ -31,9 +31,16 @@
 #   --no-settings                Skip settings file creation
 #   --no-gitignore                Skip .gitignore update
 #   --no-defaults                Skip bundled default content (use only --content-repo)
-#   --content-repo URL           GitHub repo URL with additional agents/skills
-#   --content-repo-ref REF       Branch or tag of the content repo (default: main)
-#   --content-repo-local-path DIR  Use a local content-repo checkout instead of cloning (dev/test)
+#   --content-repo URL[,URL...]  Comma-separated content-repo URLs, merged in order (later wins on key collision)
+#   --content-repo-ref REF[,REF...]   Matching comma-list of refs (default: main for any not given)
+#   --content-repo-name NAME[,NAME...] Matching comma-list of names (default: derived from each URL)
+#   --content-repo-local-path [NAME=]DIR  Repeatable: use a local content-repo checkout instead of cloning (dev/test).
+#                                          NAME must match a configured contentRepos entry to override it.
+#                                          Bare DIR (no NAME=) only applies when zero repos are configured at all
+#                                          (the init-extension/local-testing workflow — see AGENTS.md).
+#   --skills-include-categories LIST  Comma-separated category/category.subcategory allowlist
+#   --skills-include-keys LIST        Comma-separated explicit skill-key allowlist
+#   --skills-exclude-keys LIST        Comma-separated explicit skill-key denylist
 #   --ref BRANCH|TAG             harness-ai git ref to clone (default: main)
 #   --local-path DIR             Use a local harness-ai checkout instead of cloning (dev/test, implies --force)
 #   --no-rtk                     Skip RTK install and its Claude/OpenCode hooks
@@ -62,7 +69,8 @@ UPDATE_GITIGNORE="true"
 INSTALL_DEFAULTS="true"
 CONTENT_REPO=""
 CONTENT_REPO_REF="main"
-CONTENT_REPO_LOCAL_PATH=""
+CONTENT_REPO_NAME=""
+declare -a CONTENT_REPO_LOCAL_PATH_RAW=()
 GIT_REF="main"
 LOCAL_PATH=""
 INSTALL_RTK="true"
@@ -71,6 +79,10 @@ INSTALL_WIKICTL="false"
 INSTALL_OPENSPEC="true"
 CUSTOM_TOOLS=""
 CAVEMAN="true"
+SKILLS_INCLUDE_CATEGORIES=""
+SKILLS_INCLUDE_KEYS=""
+SKILLS_EXCLUDE_CATEGORIES=""
+SKILLS_EXCLUDE_KEYS=""
 FORCE="false"
 INTERACTIVE="false"
 EXTENSION_PATH=""
@@ -121,9 +133,13 @@ Options:
   --no-settings           Skip settings file creation
   --no-gitignore          Skip .gitignore update
   --no-defaults           Skip bundled default content
-  --content-repo URL      GitHub repo URL with additional agents/skills
-  --content-repo-ref REF  Branch or tag for content repo (default: main)
-  --content-repo-local-path DIR  Use a local content-repo checkout instead of cloning (dev/test)
+  --content-repo URL[,URL...]       Comma-separated content-repo URLs, merged in order
+  --content-repo-ref REF[,REF...]   Matching comma-list of refs (default: main)
+  --content-repo-name NAME[,NAME...] Matching comma-list of names (default: derived from URL)
+  --content-repo-local-path [NAME=]DIR  Repeatable: local content-repo checkout instead of cloning (dev/test)
+  --skills-include-categories LIST  Comma-separated category/category.subcategory allowlist
+  --skills-include-keys LIST        Comma-separated explicit skill-key allowlist
+  --skills-exclude-keys LIST        Comma-separated explicit skill-key denylist
   --ref BRANCH|TAG        harness-ai git ref to clone (default: main)
   --local-path DIR        Use a local harness-ai checkout instead of cloning (dev/test, implies --force)
   --no-rtk                Skip RTK install and its Claude/OpenCode hooks
@@ -182,10 +198,12 @@ run_interactive() {
     _prompt_bool  "installWikictl"                            "${INSTALL_WIKICTL}"      INSTALL_WIKICTL
     _prompt_bool  "installOpenspec"                           "${INSTALL_OPENSPEC}"     INSTALL_OPENSPEC
     _prompt_bool  "caveman"                                   "${CAVEMAN}"              CAVEMAN
-    _prompt       "contentRepo (GitHub URL, leave blank to skip)" "" CONTENT_REPO
+    _prompt       "contentRepos (comma-separated GitHub URLs, leave blank to skip)" "" CONTENT_REPO
     if [[ -n "${CONTENT_REPO}" ]]; then
-        _prompt   "contentRepoRef" "${CONTENT_REPO_REF}" CONTENT_REPO_REF
+        _prompt   "contentRepoRef(s) (comma-separated, matching contentRepos order)" "${CONTENT_REPO_REF}" CONTENT_REPO_REF
+        _prompt   "contentRepoName(s) (comma-separated, matching contentRepos order; blank = derive from URL)" "" CONTENT_REPO_NAME
     fi
+    _prompt       "skills.include.categories (comma-separated, blank = install everything)" "" SKILLS_INCLUDE_CATEGORIES
     echo ""
 }
 
@@ -227,6 +245,139 @@ _clone_content_repo() {
 }
 
 # ---------------------------------------------------------------------------
+# Multi-repo helpers — build/decode the CFG_CONTENT_REPOS delimited blob
+# (same \x1e/\x1f pattern as CFG_CUSTOM_TOOLS, see _read_config), and resolve
+# each named repo to a local path (clone, or a --content-repo-local-path
+# dev/test override) before invoking harness.py. See design.md D2/D3.
+# ---------------------------------------------------------------------------
+_slugify_url() {
+    local url="$1" slug
+    slug="${url%.git}"
+    slug="${slug##*/}"
+    slug="${slug,,}"
+    [[ -z "${slug}" ]] && slug="content-repo"
+    echo "${slug}"
+}
+
+# Builds the CFG_CONTENT_REPOS-shaped blob from CLI-flag comma-lists
+# (CONTENT_REPO / CONTENT_REPO_REF / CONTENT_REPO_NAME) — used only as the
+# fallback default when .harness-ai/config.yaml doesn't set contentRepos.
+_build_content_repos_blob_from_flags() {
+    [[ -z "${CONTENT_REPO}" ]] && return 0
+    local -a urls names refs
+    IFS=',' read -ra urls <<<"${CONTENT_REPO}"
+    IFS=',' read -ra names <<<"${CONTENT_REPO_NAME}"
+    IFS=',' read -ra refs <<<"${CONTENT_REPO_REF}"
+    local blob="" i url name ref
+    for i in "${!urls[@]}"; do
+        url="${urls[$i]}"
+        name="${names[$i]:-}"
+        [[ -z "${name}" ]] && name="$(_slugify_url "${url}")"
+        ref="${refs[$i]:-main}"
+        [[ -z "${ref}" ]] && ref="main"
+        [[ -n "${blob}" ]] && blob+=$'\x1e'
+        blob+="${name}"$'\x1f'"${url}"$'\x1f'"${ref}"
+    done
+    printf '%s' "${blob}"
+}
+
+# Decodes CONTENT_REPOS_BLOB into parallel arrays, name-ordered as configured.
+_decode_content_repos() {
+    CONTENT_REPO_NAMES=()
+    CONTENT_REPO_URLS=()
+    CONTENT_REPO_REFS=()
+    [[ -z "${CONTENT_REPOS_BLOB:-}" || "${CONTENT_REPOS_BLOB}" == "__none__" ]] && return 0
+    local entries=()
+    mapfile -d $'\x1e' -t entries <<<"${CONTENT_REPOS_BLOB}"
+    local entry name rest url ref
+    for entry in "${entries[@]}"; do
+        entry="${entry%$'\n'}"
+        [[ -z "${entry}" ]] && continue
+        name="${entry%%$'\x1f'*}"
+        rest="${entry#*$'\x1f'}"
+        url="${rest%%$'\x1f'*}"
+        ref="${rest#*$'\x1f'}"
+        CONTENT_REPO_NAMES+=("${name}")
+        CONTENT_REPO_URLS+=("${url}")
+        CONTENT_REPO_REFS+=("${ref:-main}")
+    done
+}
+
+# Builds the name->local-path override map from repeated
+# --content-repo-local-path [NAME=]DIR flags. A bare DIR (no NAME=) is kept
+# under the __unnamed__ key — the legacy single-repo dev workflow
+# (`cli.sh install --content-repo-local-path ./my-extension`, no configured
+# contentRepos at all; see AGENTS.md's "Extending harness-ai").
+_build_content_repo_overrides() {
+    declare -gA CONTENT_REPO_LOCAL_PATH_OVERRIDES=()
+    local raw
+    for raw in "${CONTENT_REPO_LOCAL_PATH_RAW[@]:-}"; do
+        [[ -z "${raw}" ]] && continue
+        if [[ "${raw}" == *=* ]]; then
+            CONTENT_REPO_LOCAL_PATH_OVERRIDES["${raw%%=*}"]="${raw#*=}"
+        else
+            CONTENT_REPO_LOCAL_PATH_OVERRIDES["__unnamed__"]="${raw}"
+        fi
+    done
+}
+
+# Resolves every configured repo to a local path: an override wins, otherwise
+# a fresh shallow clone into ${TEMP_DIR}/content-repo/<name>/. Populates
+# CONTENT_REPO_RESOLVED_PATHS (parallel to CONTENT_REPO_NAMES).
+_resolve_content_repos() {
+    CONTENT_REPO_RESOLVED_PATHS=()
+
+    if [[ ${#CONTENT_REPO_NAMES[@]} -eq 0 && -n "${CONTENT_REPO_LOCAL_PATH_OVERRIDES[__unnamed__]:-}" ]]; then
+        CONTENT_REPO_NAMES=("$(_slugify_url "${CONTENT_REPO_LOCAL_PATH_OVERRIDES[__unnamed__]}")")
+        CONTENT_REPO_RESOLVED_PATHS=("${CONTENT_REPO_LOCAL_PATH_OVERRIDES[__unnamed__]}")
+        return 0
+    fi
+
+    local i name url ref override dest
+    for i in "${!CONTENT_REPO_NAMES[@]}"; do
+        name="${CONTENT_REPO_NAMES[$i]}"
+        url="${CONTENT_REPO_URLS[$i]}"
+        ref="${CONTENT_REPO_REFS[$i]}"
+        override="${CONTENT_REPO_LOCAL_PATH_OVERRIDES[${name}]:-}"
+        if [[ -n "${override}" ]]; then
+            CONTENT_REPO_RESOLVED_PATHS+=("${override}")
+            continue
+        fi
+        dest="${TEMP_DIR}/content-repo/${name}"
+        info "Cloning content repo '${name}' (ref: ${ref})..."
+        _clone_content_repo "${url}" "${ref}" "${dest}"
+        CONTENT_REPO_RESOLVED_PATHS+=("${dest}")
+    done
+}
+
+# Resolves every configured repo's remote HEAD SHA via ls-remote (no clone).
+# Returns non-zero (and stops early) if any repo's SHA can't be resolved —
+# an incomplete hash would let cmd_sync's fast path falsely report "no
+# changes" for private content it couldn't authenticate against.
+_resolve_content_repo_shas() {
+    CONTENT_REPO_SHAS=()
+    local i name url ref sha
+    for i in "${!CONTENT_REPO_NAMES[@]}"; do
+        name="${CONTENT_REPO_NAMES[$i]}"
+        url="${CONTENT_REPO_URLS[$i]}"
+        ref="${CONTENT_REPO_REFS[$i]}"
+        sha=$(_get_remote_sha "${url}" "${ref}")
+        [[ -z "${sha}" ]] && return 1
+        CONTENT_REPO_SHAS+=("${name}=${sha}")
+    done
+    return 0
+}
+
+# Builds `--content-repos name=path` args for every resolved repo, for
+# harness.py's argparse (task 2.4/3.11).
+_content_repos_args() {
+    local i
+    for i in "${!CONTENT_REPO_NAMES[@]}"; do
+        printf '%s\n' "--content-repos" "${CONTENT_REPO_NAMES[$i]}=${CONTENT_REPO_RESOLVED_PATHS[$i]}"
+    done
+}
+
+# ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
 if [[ $# -gt 0 && "$1" != -* ]]; then
@@ -252,7 +403,11 @@ while [[ $# -gt 0 ]]; do
         --no-defaults)        INSTALL_DEFAULTS="false";   shift ;;
         --content-repo)       CONTENT_REPO="$2";          shift 2 ;;
         --content-repo-ref)   CONTENT_REPO_REF="$2";      shift 2 ;;
-        --content-repo-local-path) CONTENT_REPO_LOCAL_PATH="$2"; shift 2 ;;
+        --content-repo-name)  CONTENT_REPO_NAME="$2";     shift 2 ;;
+        --content-repo-local-path) CONTENT_REPO_LOCAL_PATH_RAW+=("$2"); shift 2 ;;
+        --skills-include-categories) SKILLS_INCLUDE_CATEGORIES="$2"; shift 2 ;;
+        --skills-include-keys)       SKILLS_INCLUDE_KEYS="$2";       shift 2 ;;
+        --skills-exclude-keys)       SKILLS_EXCLUDE_KEYS="$2";       shift 2 ;;
         --ref)                GIT_REF="$2";               shift 2 ;;
         --local-path)         LOCAL_PATH="$2";            shift 2 ;;
         --no-rtk)             INSTALL_RTK="false";        shift ;;
@@ -460,6 +615,7 @@ _resolve_harness_ai_source() {
 _read_config() {
     local config_file="$1"
     "${PYTHON}" - "${config_file}" <<'PYEOF'
+import re
 import shlex
 import sys
 
@@ -467,7 +623,13 @@ import yaml
 
 path = sys.argv[1]
 with open(path) as f:
-    cfg = yaml.safe_load(f) or {}
+    try:
+        cfg = yaml.safe_load(f) or {}
+    except yaml.YAMLError:
+        # No message here on purpose: cli.sh's caller falls back to its own
+        # generic "check it is valid YAML" die() message when this script's
+        # stderr is empty (see _load_config).
+        sys.exit(1)
 
 
 def emit(name, value):
@@ -515,22 +677,96 @@ for key, var in (
     if key in scaffold:
         emit(var, "true" if scaffold[key] else "false")
 
-content_repo = cfg.get("contentRepo") or {}
-if content_repo.get("url"):
-    emit("CFG_CONTENT_REPO", content_repo["url"])
-if content_repo.get("ref"):
-    emit("CFG_CONTENT_REPO_REF", content_repo["ref"])
+# contentRepos (a list) is the current shape; the old singular contentRepo
+# is read as sugar for a one-entry list (name derived from the URL slug),
+# with a deprecation warning — see design.md D3. Either way the result is
+# emitted as one CFG_CONTENT_REPOS delimited blob (record separator \x1e
+# between repos, unit separator \x1f between name/url/ref), decoded in
+# _load_config — same pattern as CFG_CUSTOM_TOOLS.
+RESERVED_SOURCE_NAMES = {"default", "local"}
+
+
+def _slugify(url):
+    name = url.rstrip("/").rsplit("/", 1)[-1]
+    if name.endswith(".git"):
+        name = name[: -len(".git")]
+    name = re.sub(r"[^a-zA-Z0-9]+", "-", name).strip("-").lower()
+    return name or "content-repo"
+
+
+repos = []
+# `"contentRepos" in cfg` (presence), not `cfg.get("contentRepos")` (truthiness):
+# an explicit `contentRepos: []` must still override a --content-repo CLI
+# flag (config.yaml always wins over flags), not silently fall through to
+# it just because an empty list is falsy like an absent key.
+content_repos_present = "contentRepos" in cfg
+content_repos = cfg.get("contentRepos") or []
+if content_repos_present:
+    seen_names = set()
+    for entry in content_repos:
+        entry = entry or {}
+        name = entry.get("name")
+        if not name:
+            sys.exit(f"contentRepos entry missing required 'name' field: {entry}")
+        if name in RESERVED_SOURCE_NAMES:
+            sys.exit(f"contentRepos name '{name}' is reserved (used internally for the bundled/local sources) — choose a different name")
+        if name in seen_names:
+            sys.exit(f"contentRepos name '{name}' is used more than once — names must be unique")
+        seen_names.add(name)
+        if entry.get("url"):
+            repos.append((name, entry["url"], entry.get("ref") or "main"))
+elif (cfg.get("contentRepo") or {}).get("url"):
+    cr = cfg["contentRepo"]
+    derived = _slugify(cr["url"])
+    if derived in RESERVED_SOURCE_NAMES:
+        sys.exit(f"content repo name derived from URL ('{derived}') collides with a reserved source name — set contentRepos explicitly with a different name")
+    repos.append((derived, cr["url"], cr.get("ref") or "main"))
+    print(
+        "[WARN] .harness-ai/config.yaml: 'contentRepo' (singular) is deprecated, use 'contentRepos' (a list) instead",
+        file=sys.stderr,
+    )
+
+if repos:
+    blob = "\x1e".join(f"{name}\x1f{url}\x1f{ref}" for name, url, ref in repos)
+    emit("CFG_CONTENT_REPOS", blob)
+elif content_repos_present:
+    # Explicit empty list: emit a non-empty sentinel so _load_config's
+    # `${CFG_CONTENT_REPOS:-<flag fallback>}` doesn't treat "empty" the same
+    # as "unset" and fall through to a --content-repo flag anyway.
+    print("CFG_CONTENT_REPOS=__none__")
+
+skills = cfg.get("skills") or {}
+include = skills.get("include") or {}
+exclude = skills.get("exclude") or {}
+if include.get("categories"):
+    emit("CFG_SKILLS_INCLUDE_CATEGORIES", ",".join(include["categories"]))
+if include.get("keys"):
+    emit("CFG_SKILLS_INCLUDE_KEYS", ",".join(include["keys"]))
+if exclude.get("categories"):
+    emit("CFG_SKILLS_EXCLUDE_CATEGORIES", ",".join(exclude["categories"]))
+if exclude.get("keys"):
+    emit("CFG_SKILLS_EXCLUDE_KEYS", ",".join(exclude["keys"]))
 PYEOF
 }
 
 _load_config() {
     local config_file="${WORKSPACE}/.harness-ai/config.yaml"
     if [[ -f "${config_file}" ]]; then
-        local resolved
+        local resolved err_file
+        err_file="${TEMP_DIR}/read_config.err"
         # Plain assignment (not `local var=$(...)`) so a parse failure's exit
         # status is actually visible here instead of being masked by `local`.
-        resolved="$(_read_config "${config_file}")" \
-            || die "Failed to parse ${config_file} — check it is valid YAML."
+        # stderr is captured so a specific Python-raised error (e.g. a reserved
+        # contentRepos name) can be shown verbatim instead of the generic
+        # fallback message; on success, anything captured (e.g. the
+        # contentRepo deprecation warning) is replayed to the real stderr.
+        if ! resolved="$(_read_config "${config_file}" 2>"${err_file}")"; then
+            if [[ -s "${err_file}" ]]; then
+                die "$(cat "${err_file}")"
+            fi
+            die "Failed to parse ${config_file} — check it is valid YAML."
+        fi
+        [[ -s "${err_file}" ]] && cat "${err_file}" >&2
         eval "${resolved}"
     fi
     TOOLS="${CFG_TOOLS:-${TOOLS}}"
@@ -544,9 +780,13 @@ _load_config() {
     CREATE_FILE_SETTING="${CFG_CREATE_FILE_SETTING:-${CREATE_FILE_SETTING}}"
     UPDATE_GITIGNORE="${CFG_UPDATE_GITIGNORE:-${UPDATE_GITIGNORE}}"
     INSTALL_DEFAULTS="${CFG_INSTALL_DEFAULTS:-${INSTALL_DEFAULTS}}"
-    CONTENT_REPO="${CFG_CONTENT_REPO:-${CONTENT_REPO}}"
-    CONTENT_REPO_REF="${CFG_CONTENT_REPO_REF:-${CONTENT_REPO_REF}}"
     CUSTOM_TOOLS="${CFG_CUSTOM_TOOLS:-${CUSTOM_TOOLS:-}}"
+    CONTENT_REPOS_BLOB="${CFG_CONTENT_REPOS:-$(_build_content_repos_blob_from_flags)}"
+    SKILLS_INCLUDE_CATEGORIES="${CFG_SKILLS_INCLUDE_CATEGORIES:-${SKILLS_INCLUDE_CATEGORIES}}"
+    SKILLS_INCLUDE_KEYS="${CFG_SKILLS_INCLUDE_KEYS:-${SKILLS_INCLUDE_KEYS}}"
+    SKILLS_EXCLUDE_CATEGORIES="${CFG_SKILLS_EXCLUDE_CATEGORIES:-${SKILLS_EXCLUDE_CATEGORIES}}"
+    SKILLS_EXCLUDE_KEYS="${CFG_SKILLS_EXCLUDE_KEYS:-${SKILLS_EXCLUDE_KEYS}}"
+    _decode_content_repos
 }
 
 # Copy-once starter config, seeded from the resolved (pre-YAML) fallback
@@ -563,29 +803,38 @@ _seed_starter_config() {
     fi
 
     mkdir -p "${config_dir}"
-    # CUSTOM_TOOLS is variable-length (a name->command map), so it can't be
-    # squeezed into the fixed positional args below without renumbering them;
-    # it travels on fd 3 (a here-string) instead, read via os.fdopen(3) in
-    # the script, leaving the other ~14 positional args untouched.
+    # CUSTOM_TOOLS and CONTENT_REPOS_BLOB are both variable-length (a
+    # name->command map and a name/url/ref list respectively), so neither
+    # fits the fixed positional args below; they travel on fd 3 and fd 4
+    # (here-strings), read via os.fdopen() in the script, leaving the other
+    # positional args untouched.
     "${PYTHON}" - "${template}" "${config_file}" \
         "${TOOLS}" "${INSTALL_RTK}" "${INSTALL_HEADROOM}" "${INSTALL_WIKICTL}" \
         "${INSTALL_OPENSPEC}" "${CAVEMAN}" \
         "${CREATE_FILE_MCP}" "${CREATE_FILE_HOOKS}" "${CREATE_FILE_SETTING}" \
-        "${UPDATE_GITIGNORE}" "${INSTALL_DEFAULTS}" "${CONTENT_REPO}" "${CONTENT_REPO_REF}" \
-        3<<<"${CUSTOM_TOOLS}" <<'PYEOF'
+        "${UPDATE_GITIGNORE}" "${INSTALL_DEFAULTS}" \
+        "${SKILLS_INCLUDE_CATEGORIES}" "${SKILLS_INCLUDE_KEYS}" \
+        "${SKILLS_EXCLUDE_CATEGORIES}" "${SKILLS_EXCLUDE_KEYS}" \
+        3<<<"${CUSTOM_TOOLS}" 4<<<"${CONTENT_REPOS_BLOB}" <<'PYEOF'
 import os
 import sys
 
 import yaml
 
 (template_path, out_path, tools, i_rtk, i_hr, i_wc, i_os, caveman,
- mcp, hooks, settings, gi, defaults, cr_url, cr_ref) = sys.argv[1:16]
+ mcp, hooks, settings, gi, defaults,
+ skills_inc_cats, skills_inc_keys, skills_exc_cats, skills_exc_keys) = sys.argv[1:18]
 
 custom_blob = os.fdopen(3).read().rstrip("\n")
+content_repos_blob = os.fdopen(4).read().rstrip("\n")
 
 
 def b(v):
     return v.lower() == "true"
+
+
+def csv(v):
+    return [x for x in v.split(",") if x]
 
 
 with open(template_path) as f:
@@ -607,8 +856,16 @@ cfg["scaffold"]["createFileHooks"] = b(hooks)
 cfg["scaffold"]["createFileSetting"] = b(settings)
 cfg["scaffold"]["updateGitignore"] = b(gi)
 cfg["scaffold"]["installDefaults"] = b(defaults)
-cfg["contentRepo"]["url"] = cr_url
-cfg["contentRepo"]["ref"] = cr_ref or "main"
+
+cfg["contentRepos"] = [
+    {"name": entry.split("\x1f")[0], "url": entry.split("\x1f")[1], "ref": entry.split("\x1f")[2]}
+    for entry in content_repos_blob.split("\x1e")
+    if entry
+]
+cfg["skills"] = {
+    "include": {"categories": csv(skills_inc_cats), "keys": csv(skills_inc_keys)},
+    "exclude": {"categories": csv(skills_exc_cats), "keys": csv(skills_exc_keys)},
+}
 
 with open(out_path, "w") as f:
     yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
@@ -841,8 +1098,10 @@ _run_scaffold() {
     fi
 
     local extra_args=()
-    [[ -n "${CONTENT_REPO_LOCAL_PATH:-}" ]] && extra_args+=(--content-repo-local-path "${CONTENT_REPO_LOCAL_PATH}")
-    [[ -n "${CONTENT_REPO_SHA:-}" ]] && extra_args+=(--content-repo-sha "${CONTENT_REPO_SHA}")
+    local line
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && extra_args+=("${line}")
+    done < <(_content_repos_args)
 
     "${PYTHON}" "${HARNESS_SRC}/harness.py" \
         --workspace               "${WORKSPACE}" \
@@ -854,6 +1113,10 @@ _run_scaffold() {
         --install-defaults        "${INSTALL_DEFAULTS}" \
         --install-wikictl         "${INSTALL_WIKICTL}" \
         --behavior-caveman        "${CAVEMAN}" \
+        --skills-include-categories "${SKILLS_INCLUDE_CATEGORIES}" \
+        --skills-include-keys       "${SKILLS_INCLUDE_KEYS}" \
+        --skills-exclude-categories "${SKILLS_EXCLUDE_CATEGORIES}" \
+        --skills-exclude-keys       "${SKILLS_EXCLUDE_KEYS}" \
         "${extra_args[@]+"${extra_args[@]}"}"
 }
 
@@ -865,6 +1128,7 @@ cmd_install() {
     _setup_python
     _load_config
     _seed_starter_config
+    _build_content_repo_overrides
 
     _ensure_uv_tool_path
     [[ "${INSTALL_RTK}" == "true" ]] && _install_rtk_binary
@@ -876,19 +1140,19 @@ cmd_install() {
     # the current script). Best-effort: never fails the install.
     command -v uv &>/dev/null && { uv tool update-shell 2>/dev/null || true; }
 
-    # --content-repo (URL) takes precedence: cloning replaces any
-    # --content-repo-local-path passed for local dev/test.
-    if [[ -n "${CONTENT_REPO}" ]]; then
-        info "Cloning content repo (ref: ${CONTENT_REPO_REF})..."
-        _clone_content_repo "${CONTENT_REPO}" "${CONTENT_REPO_REF}" "${TEMP_DIR}/content-repo"
-        CONTENT_REPO_LOCAL_PATH="${TEMP_DIR}/content-repo"
-    fi
-    # Custom tools run after the content repo is available so its custom.yaml
-    # (if any) is already merged into CUSTOM_TOOLS.
-    [[ -n "${CONTENT_REPO_LOCAL_PATH:-}" ]] && _merge_content_custom "${CONTENT_REPO_LOCAL_PATH}"
+    # Clones each configured repo (or uses a --content-repo-local-path
+    # override) into CONTENT_REPO_RESOLVED_PATHS, parallel to CONTENT_REPO_NAMES.
+    _resolve_content_repos
+    # Custom tools run after every content repo is available so their
+    # custom.yaml (if any) is merged into CUSTOM_TOOLS, in config order —
+    # later repos' commands win on name collision.
+    local repo_path
+    for repo_path in "${CONTENT_REPO_RESOLVED_PATHS[@]:-}"; do
+        [[ -n "${repo_path}" ]] && _merge_content_custom "${repo_path}"
+    done
     [[ -n "${CUSTOM_TOOLS}" ]] && _install_custom_tools
 
-    # The lock hash is identity-based (harness-ai HEAD SHA + content repo SHA),
+    # The lock hash is identity-based (harness-ai HEAD SHA + content repo SHAs),
     # so uncommitted local changes never alter it: a local checkout always forces.
     if [[ "${FORCE}" == "true" || -n "${LOCAL_PATH}" ]]; then
         if [[ -f "${WORKSPACE}/.harness-ai/lock" ]]; then
@@ -908,29 +1172,36 @@ cmd_sync() {
     _resolve_harness_ai_source
     _setup_python
     _load_config
+    _build_content_repo_overrides
 
-    CONTENT_REPO_SHA=""
-    if [[ -n "${CONTENT_REPO}" ]]; then
-        CONTENT_REPO_SHA=$(_get_remote_sha "${CONTENT_REPO}" "${CONTENT_REPO_REF}")
+    # Fast check: skip the full clone+scaffold if every configured repo's SHA
+    # resolves. An unresolved SHA (e.g. private repo auth failed) means the
+    # hash would be incomplete — a false match could silently skip private
+    # content changes — so that falls straight through to a full run instead.
+    local shas_ok="false"
+    CONTENT_REPO_SHAS=()
+    if _resolve_content_repo_shas; then
+        shas_ok="true"
     fi
 
-    # Fast check: skip if content repo is defined but SHA is unavailable (auth failed).
-    # Without the SHA the hash is incomplete — a false match would silently skip private content.
-    if [[ -z "${CONTENT_REPO}" || -n "${CONTENT_REPO_SHA}" ]]; then
+    if [[ ${#CONTENT_REPO_NAMES[@]} -eq 0 || "${shas_ok}" == "true" ]]; then
+        local sha_args=() s
+        for s in "${CONTENT_REPO_SHAS[@]:-}"; do
+            [[ -n "${s}" ]] && sha_args+=(--content-repo-sha "${s}")
+        done
         if "${PYTHON}" "${HARNESS_SRC}/harness.py" \
             --workspace "${WORKSPACE}" \
             --check-only \
-            ${CONTENT_REPO_SHA:+--content-repo-sha "${CONTENT_REPO_SHA}"}; then
+            "${sha_args[@]+"${sha_args[@]}"}"; then
             exit 0
         fi
     fi
 
-    if [[ -n "${CONTENT_REPO}" ]]; then
-        info "Cloning content repo (ref: ${CONTENT_REPO_REF})..."
-        _clone_content_repo "${CONTENT_REPO}" "${CONTENT_REPO_REF}" "${TEMP_DIR}/content-repo"
-        CONTENT_REPO_LOCAL_PATH="${TEMP_DIR}/content-repo"
-    fi
-    [[ -n "${CONTENT_REPO_LOCAL_PATH:-}" ]] && _merge_content_custom "${CONTENT_REPO_LOCAL_PATH}"
+    _resolve_content_repos
+    local repo_path
+    for repo_path in "${CONTENT_REPO_RESOLVED_PATHS[@]:-}"; do
+        [[ -n "${repo_path}" ]] && _merge_content_custom "${repo_path}"
+    done
     [[ -n "${CUSTOM_TOOLS}" ]] && _install_custom_tools
 
     echo ""

@@ -32,7 +32,23 @@ scaffold:
 behavior:
   caveman: true
 
-# Optional private content repo merged on top of bundled defaults
-contentRepo:
-  url: ""
-  ref: main
+# Named content repos merged on top of bundled defaults, in order (later
+# wins on key collision). Each entry needs a unique `name` (not "default" or
+# "local" — those are reserved for the bundled and workspace-local sources).
+# The old singular `contentRepo: {url, ref}` key still works as sugar for a
+# one-entry list (name derived from the URL), with a deprecation warning.
+contentRepos: []
+# - name: my-private-content
+#   url: https://github.com/my-org/ai-content
+#   ref: main
+
+# Skill-only include/exclude filtering (by category, category.subcategory, or
+# explicit key). Agents are never filtered this way. Empty include means
+# "install everything" (today's default behavior).
+skills:
+  include:
+    categories: []
+    keys: []
+  exclude:
+    categories: []
+    keys: []
