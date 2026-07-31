@@ -18,6 +18,11 @@
 #   custom-tools/     multi-entry install.custom map, one entry failing ->
 #                      the delimited-blob bridge round-trips and the failing
 #                      entry warns without aborting the run
+#   legacy-content-repo/  old singular `contentRepo` key -> still works via
+#                      the D3 back-compat shim, with a deprecation warning
+#   multi-content-repo/   two named contentRepos entries (local-path
+#                      overrides, no network) -> both merge, each into its
+#                      own canonical-store subfolder
 #   wikictl-enabled/  install.wikictl: true -> wikictl actually installs,
 #                      resolves on PATH, and serves on port 9797
 #
@@ -117,7 +122,8 @@ else
     assert_contains "${ws}/opencode.json" "wikictl" "wikictl MCP entry present in opencode.json (install.wikictl true, opencode in tools)"
     assert_not_contains "${ws}/.claude/settings.json" "rtk hook claude" "RTK hook NOT merged (install.rtk false)"
     assert_not_contains "${ws}/AGENTS.md" "Default communication mode: caveman" "no caveman-default instruction (behavior.caveman false)"
-    assert_file_exists "${ws}/.claude/skills/caveman/SKILL.md" "caveman skill still installed (installDefaults true - only the AGENTS.md default is off)"
+    assert_file_absent "${ws}/.claude/skills/caveman" "caveman skill excluded (skills.exclude.keys: [caveman])"
+    assert_file_exists "${ws}/.claude/skills/skill-creator/SKILL.md" "skill-creator still installed (installDefaults true, not excluded)"
 fi
 
 echo ""
@@ -160,6 +166,47 @@ else
     assert_contains "${ws}.log" "fail-tool" "fail-tool's failure is logged"
     assert_contains "${ws}.log" "[WARN]" "fail-tool failure is a warning, not a hard stop"
 fi
+
+echo ""
+echo "=== legacy-content-repo: old singular 'contentRepo' key still works, with a deprecation warning ==="
+ws=$(fresh_scratch "legacy-content-repo")
+bash "${REPO_DIR}/cli.sh" install --local-path "${REPO_DIR}" --workspace "${ws}" >"${ws}.log" 2>&1
+rc=$?
+if [[ ${rc} -ne 0 ]]; then
+    fail "cli.sh install exited ${rc} (see ${ws}.log)"
+else
+    pass "cli.sh install succeeded with the legacy singular contentRepo key"
+fi
+assert_contains "${ws}.log" "deprecated" "deprecation warning printed for the singular contentRepo key"
+assert_file_exists "${ws}/.claude/skills/caveman/SKILL.md" "bundled default skills still materialize correctly"
+
+echo ""
+echo "=== multi-content-repo: N named contentRepos merge into separate canonical-store subfolders ==="
+ws=$(fresh_scratch "multi-content-repo")
+repo_a_dir="${SCRATCH_ROOT}/multi-content-repo-src-a"
+repo_b_dir="${SCRATCH_ROOT}/multi-content-repo-src-b"
+rm -rf "${repo_a_dir}" "${repo_b_dir}"
+mkdir -p "${repo_a_dir}/skills/skill-a" "${repo_b_dir}/skills/skill-b"
+printf 'default:\n  claude:\n\nskills:\n  skill-a:\n    category: engineering\n    subcategory: coding\n    claude:\n      name: skill-a\n      description: From repo A.\n' \
+    > "${repo_a_dir}/skills/metadata.yml"
+printf '# Skill A\nBody from repo A.' > "${repo_a_dir}/skills/skill-a/SKILL.md"
+printf 'default:\n  claude:\n\nskills:\n  skill-b:\n    category: engineering\n    subcategory: coding\n    claude:\n      name: skill-b\n      description: From repo B.\n' \
+    > "${repo_b_dir}/skills/metadata.yml"
+printf '# Skill B\nBody from repo B.' > "${repo_b_dir}/skills/skill-b/SKILL.md"
+bash "${REPO_DIR}/cli.sh" install --local-path "${REPO_DIR}" --workspace "${ws}" \
+    --content-repo-local-path "repo-a=${repo_a_dir}" \
+    --content-repo-local-path "repo-b=${repo_b_dir}" \
+    >"${ws}.log" 2>&1
+rc=$?
+if [[ ${rc} -ne 0 ]]; then
+    fail "cli.sh install exited ${rc} (see ${ws}.log)"
+else
+    assert_file_exists "${ws}/.harness-ai/skills/repo-a/skill-a/claude.SKILL.md" "repo-a's skill rendered into its own canonical-store subfolder"
+    assert_file_exists "${ws}/.harness-ai/skills/repo-b/skill-b/claude.SKILL.md" "repo-b's skill rendered into its own canonical-store subfolder"
+    assert_file_exists "${ws}/.claude/skills/skill-a/SKILL.md" "skill-a symlinked into .claude/skills"
+    assert_file_exists "${ws}/.claude/skills/skill-b/SKILL.md" "skill-b symlinked into .claude/skills"
+fi
+rm -rf "${repo_a_dir}" "${repo_b_dir}"
 
 echo ""
 echo "=== wikictl-enabled: install.wikictl true -> wikictl actually installs, resolves, and serves ==="

@@ -1,6 +1,11 @@
 default:
   opencode:
   claude:
+  # Minimal on purpose (name/description only, no license/metadata.author) —
+  # per-entry `agents:` blocks are optional: when absent, the `agents`
+  # profile falls back to the claude/opencode block's name+description
+  # (see harness.py's `_tool_meta_for`). See design.md D4.
+  agents:
 
 agents:
   developer:

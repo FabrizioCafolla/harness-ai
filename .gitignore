@@ -1,3 +1,5 @@
 test/
 private/
 tests/e2e/.scratch/
+__pycache__/
+*.pyc

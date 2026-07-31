@@ -10,6 +10,15 @@ opencode:
     source: config/opencode/rtk-plugin.ts
     dest: .opencode/plugins/rtk.ts
 
+agents:
+  base_dir: .agents
+  agents:
+    dir: agents
+    suffix: .md
+  skills:
+    dir: skills
+    filename: SKILL.md
+
 claude:
   base_dir: .claude
   agents:

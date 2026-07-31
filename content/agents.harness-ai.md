@@ -10,7 +10,7 @@
 
 ### Setup
 
-Structured config — `tools`, install toggles, the content repo — lives in the workspace's `.harness-ai/config.yaml`, the single source of truth. The devcontainer feature ships with no options at all.
+Structured config — `tools`, install toggles, content repos — lives in the workspace's `.harness-ai/config.yaml`, the single source of truth. The devcontainer feature ships with no options at all.
 
 **Devcontainer** (`devcontainer.json`):
 
@@ -30,10 +30,13 @@ install:
   openspec: true
 behavior:
   caveman: true
-contentRepo:
-  url: https://github.com/your-org/your-private-skills-repo
-  ref: main
+contentRepos:
+  - name: your-private-skills-repo
+    url: https://github.com/your-org/your-private-skills-repo
+    ref: main
 ```
+
+The old singular `contentRepo: {url, ref}` still works (sugar for a one-entry `contentRepos` list, name derived from the URL) with a deprecation warning — see [Content repos](https://github.com/FabrizioCafolla/harness-ai#content-repos).
 
 **CLI** (`cli.sh`) — for use outside a devcontainer:
 

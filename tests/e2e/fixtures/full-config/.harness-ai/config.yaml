@@ -16,6 +16,11 @@ scaffold:
   installDefaults: true
 behavior:
   caveman: false
-contentRepo:
-  url: ""
-  ref: main
+contentRepos: []
+skills:
+  include:
+    categories: []
+    keys: []
+  exclude:
+    categories: []
+    keys: [caveman]
