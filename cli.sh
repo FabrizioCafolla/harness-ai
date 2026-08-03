@@ -1174,26 +1174,34 @@ cmd_sync() {
     _load_config
     _build_content_repo_overrides
 
-    # Fast check: skip the full clone+scaffold if every configured repo's SHA
-    # resolves. An unresolved SHA (e.g. private repo auth failed) means the
-    # hash would be incomplete — a false match could silently skip private
-    # content changes — so that falls straight through to a full run instead.
-    local shas_ok="false"
-    CONTENT_REPO_SHAS=()
-    if _resolve_content_repo_shas; then
-        shas_ok="true"
-    fi
+    # --force / --local-path bypass the hash fast-path entirely, same override
+    # cmd_install applies before scaffolding: the lock hash is identity-based
+    # (HEAD SHA), so it can't see uncommitted local edits, and previously
+    # cmd_sync ignored both flags outright and always trusted the SHA check.
+    if [[ "${FORCE}" == "true" || -n "${LOCAL_PATH}" ]]; then
+        info "Forcing re-scaffold (skipping hash fast-path)"
+    else
+        # Fast check: skip the full clone+scaffold if every configured repo's SHA
+        # resolves. An unresolved SHA (e.g. private repo auth failed) means the
+        # hash would be incomplete — a false match could silently skip private
+        # content changes — so that falls straight through to a full run instead.
+        local shas_ok="false"
+        CONTENT_REPO_SHAS=()
+        if _resolve_content_repo_shas; then
+            shas_ok="true"
+        fi
 
-    if [[ ${#CONTENT_REPO_NAMES[@]} -eq 0 || "${shas_ok}" == "true" ]]; then
-        local sha_args=() s
-        for s in "${CONTENT_REPO_SHAS[@]:-}"; do
-            [[ -n "${s}" ]] && sha_args+=(--content-repo-sha "${s}")
-        done
-        if "${PYTHON}" "${HARNESS_SRC}/harness.py" \
-            --workspace "${WORKSPACE}" \
-            --check-only \
-            "${sha_args[@]+"${sha_args[@]}"}"; then
-            exit 0
+        if [[ ${#CONTENT_REPO_NAMES[@]} -eq 0 || "${shas_ok}" == "true" ]]; then
+            local sha_args=() s
+            for s in "${CONTENT_REPO_SHAS[@]:-}"; do
+                [[ -n "${s}" ]] && sha_args+=(--content-repo-sha "${s}")
+            done
+            if "${PYTHON}" "${HARNESS_SRC}/harness.py" \
+                --workspace "${WORKSPACE}" \
+                --check-only \
+                "${sha_args[@]+"${sha_args[@]}"}"; then
+                exit 0
+            fi
         fi
     fi
 
