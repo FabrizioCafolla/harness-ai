@@ -293,7 +293,7 @@ A **`workspace`** source is auto-detected from `.harness-ai/local/` in the targe
 └── paths.yml   # optional — falls back to `default`'s if omitted
 ```
 
-Full category/subcategory support and `skills.include`/`skills.exclude` filtering apply exactly as for `default`/`contentRepos`. On a same-key collision, `workspace` wins over `default` and every `contentRepos` entry (it's last in load order) but still loses to a real `local` (`.agents/skills`) file, which always wins over everything.
+Full category/subcategory support and `skills.include`/`skills.exclude` filtering apply exactly as for `default`/`contentRepos`. On a same-key collision, `workspace` wins over `default` and every `contentRepos` entry (it's last in load order) but still loses to a real `local` (`.harness-ai/skills/local/`) file, which always wins over everything.
 
 Use `workspace` for project-specific overrides that want the full repo-shaped format (categories, per-tool profiles); use [`local`](#local-skills) for a quick, no-ceremony single file. They're not mutually exclusive — a workspace can use both.
 
@@ -303,23 +303,32 @@ Delete `.harness-ai/local/` and re-sync to remove the source cleanly; nothing sp
 
 ## Local skills
 
-A **`local`** source formalizes hand-authoring a skill or agent directly in the *consuming* workspace, no content repo needed:
+A **`local`** source formalizes hand-authoring a skill or agent directly in the *consuming* workspace's own canonical store, no content repo needed:
 
 ```
-.agents/
-├── skills/
+.harness-ai/
+├── skills/local/
 │   └── my-skill/
 │       ├── SKILL.md       # frontmatter INLINE (name/description in the file itself)
 │       └── references/    # optional, used as-is
-└── agents/
+└── agents/local/
     └── my-agent.md         # frontmatter inline
 ```
 
-Unlike `default`/content-repo/`workspace` skills, a `local` file's frontmatter lives directly in the file (the way Claude Code's own Skill/Agent authoring tools write them) — there's no `metadata.yml` and no per-tool rendering step. harness-ai discovers every real (non-symlink) `SKILL.md`/`<key>.md` under `.agents/skills/`/`.agents/agents/` on each run and symlinks its whole skill directory (or the agent file) straight into every active tool's directory (`.claude/skills/<key>`, `.opencode/skills/<key>`, when active). It's the one source harness-ai **never deletes or rewrites** — only a dangling tool-dir symlink whose local file disappeared gets cleaned up; the authored file itself is always yours.
+Unlike `default`/content-repo/`workspace` skills, a `local` file's frontmatter lives directly in the file (the way Claude Code's own Skill/Agent authoring tools write them) — there's no `metadata.yml` and no per-tool rendering step. harness-ai discovers every `SKILL.md`/`<key>.md` under `.harness-ai/skills/local/`/`.harness-ai/agents/local/` on each run and symlinks its whole skill directory (or the agent file) into every active tool's directory, `.agents/skills/<key>` included — `local` renders through the exact same canonical-store-plus-symlink path every other source uses, with no tool-specific exception. It's the one source harness-ai **never deletes or rewrites at its canonical location** — only a dangling tool-dir symlink whose local file disappeared gets cleaned up; the authored file itself is always yours.
 
 `local` always wins on a same-key collision with `default`/content-repo/`workspace` sources — a workspace can deliberately override a bundled, repo, or `workspace` skill by authoring the same key locally.
 
 Category/subcategory filtering (below) doesn't apply to `local` skills (they carry no metadata for it) — `skills.exclude.keys` can still remove one by name.
+
+**Migrating from the pre-1.0 layout**: earlier versions authored `local` directly at `.agents/skills/<key>/SKILL.md` / `.agents/agents/<key>.md`, which also had to double as the always-on `agents` tool's render target. If you have real files there, move them by hand before upgrading:
+
+```
+mv .agents/skills/<key> .harness-ai/skills/local/<key>
+mv .agents/agents/<key>.md .harness-ai/agents/local/<key>.md
+```
+
+Do this for every `local` key, then run `harnessai sync --force`. Skipping the move isn't silently dangerous — the foreign-entry-safety guard refuses to turn a real `.agents/skills/<key>` file into a symlink and reports it as `[foreign]` instead, so nothing is lost, but the key won't render into any tool until you complete the move.
 
 ---
 
@@ -330,13 +339,13 @@ Three shapes, combinable:
 - **Public / bundled-only** — no `contentRepos`. Just the bundled `content/` (developer/advisor skills, taxonomy) plus whatever `local` skills the workspace authors itself. The default for a new workspace.
 - **Private content repo(s)** — one or more `contentRepos` entries pointing at a private (or public) repo with your own/your team's skills and agents, merged on top of the bundled defaults. Set `GITHUB_TOKEN` for private repos.
 - **Workspace-only `workspace` content** — a `.harness-ai/local/` directory, repo-shaped but never published anywhere; auto-detected, no config entry.
-- **Workspace-only `local` skills** — no content repo at all, just hand-authored `.agents/skills/<key>/SKILL.md` files. Useful for skills that are specific to one project and not worth publishing anywhere.
+- **Workspace-only `local` skills** — no content repo at all, just hand-authored `.harness-ai/skills/local/<key>/SKILL.md` files. Useful for skills that are specific to one project and not worth publishing anywhere.
 
 Most real setups combine several of these: bundled defaults + a team's private repo + a handful of project-specific `local`/`workspace` skills the bundled/private content doesn't cover.
 
 ## Sources and the canonical store
 
-`default`/content-repo/`workspace` skills and agents are rendered once per active tool profile into a canonical store, tracked in git:
+Every source — `default`, each `contentRepos` entry, `workspace`, and `local` — has a canonical store under `.harness-ai/`, tracked in git:
 
 ```
 .harness-ai/
@@ -353,7 +362,7 @@ Most real setups combine several of these: bundled defaults + a team's private r
 
 `.claude/skills/<key>/SKILL.md`, `.opencode/skills/<key>/SKILL.md`, and `.agents/skills/<key>/SKILL.md` become symlinks into that store instead of independent copies — one canonical render per tool profile, referenced everywhere it's needed. This is tracked in git (not gitignored) so a fresh clone has working skills immediately, and a PR diff shows exactly what content changed and from where.
 
-`local` content works differently: there's no canonical store entry for it, and no per-tool rendering — the author's own file *is* the canonical artifact, and every tool directory symlinks straight to it (see [Local skills](#local-skills) above). Don't assume the canonical-store model applies everywhere; it's specific to `default`/`contentRepos`/`workspace`.
+`local`'s canonical store (`.harness-ai/skills/local/<key>/`, `.harness-ai/agents/local/<key>.md`) is the one exception to the "rendered per tool profile" shape: since `local` has no `metadata.yml` and no per-tool frontmatter, it's authored as exactly one file per key, and every tool directory — `.agents` included — symlinks straight to that one file rather than to a per-profile render (see [Local skills](#local-skills) above). It's still a real canonical store like every other source: tracked in git, protected by the same foreign-entry-safety guard, never a render target for anything else.
 
 **`.agents` is always populated**, independent of `tools:` — unlike `claude`/`opencode`, which stay opt-in. It's the emerging cross-tool convention other tools read directly.
 

@@ -28,6 +28,7 @@ test-all: check
     just test-content-repo
     just test-symlinks
     just test-local-source
+    just test-local-source-migration-safety
     just test-category-filter
     just test-workspace-source
     just test-foreign-entry
@@ -194,17 +195,18 @@ test-symlinks: clean
         && echo "  [OK] .agents/skills/caveman/SKILL.md exists as a symlink (agents wasn't in --tools)" \
         || { echo "  [FAIL] .agents/skills/caveman/SKILL.md missing or not a symlink"; exit 1; }
 
-# Formalizes the `local` source: a hand-authored .agents/skills/<key>/SKILL.md
-# (real file, inline frontmatter, no metadata.yml) is discovered and
-# symlinked, never rendered/copied (design.md D2). Regression-tests the
-# self-reference guard (D9): a bug there would make harness-ai rediscover its
-# own prior symlink output as `local` content on the next run and
-# double-count or loop.
+# Formalizes the `local` source: a hand-authored
+# .harness-ai/skills/local/<key>/SKILL.md file (inline frontmatter, no
+# metadata.yml) is discovered and symlinked into every active tool dir,
+# `.agents` included, never rendered/copied (design.md D1/D2/D3 of
+# harness-ai-local-canonical-store). Regression-tests the idempotent
+# second-run behavior: a bug there would make harness-ai double-count or loop
+# on its own prior symlink output.
 test-local-source: clean
-    @echo "==> Seeding a hand-authored local skill..."
-    mkdir -p {{workspace}}/.agents/skills/example
+    @echo "==> Seeding a hand-authored local skill (canonical store: .harness-ai/skills/local/)..."
+    mkdir -p {{workspace}}/.harness-ai/skills/local/example
     printf -- '---\nname: example\ndescription: Test local skill.\n---\n\nLocal skill body.\n' \
-        > {{workspace}}/.agents/skills/example/SKILL.md
+        > {{workspace}}/.harness-ai/skills/local/example/SKILL.md
     @echo "==> First run..."
     {{uv}} \
         --workspace {{workspace}} \
@@ -218,12 +220,25 @@ test-local-source: clean
     test -L {{workspace}}/.claude/skills/example \
         && echo "  [OK] .claude/skills/example symlinked to the local source" \
         || { echo "  [FAIL] .claude/skills/example is not a symlink"; exit 1; }
-    readlink {{workspace}}/.claude/skills/example | grep -q '.agents/skills/example' \
-        && echo "  [OK] symlink points at .agents/skills/example" \
+    readlink {{workspace}}/.claude/skills/example | grep -q '.harness-ai/skills/local/example' \
+        && echo "  [OK] symlink points at .harness-ai/skills/local/example" \
         || { echo "  [FAIL] symlink target unexpected"; exit 1; }
+    # Core behavior change from the pre-1.0 layout (design.md D3): `.agents` is
+    # now a pure render target for `local` too, no more same-path exception —
+    # previously this test asserted the opposite (that `.agents/skills` was
+    # the source, not a link target).
+    test -L {{workspace}}/.agents/skills/example \
+        && echo "  [OK] .agents/skills/example is ALSO a symlink now (no more agents-profile exception for local)" \
+        || { echo "  [FAIL] CRITICAL: .agents/skills/example is not a symlink — agents-profile exception regressed"; exit 1; }
+    readlink {{workspace}}/.agents/skills/example | grep -q '.harness-ai/skills/local/example' \
+        && echo "  [OK] .agents symlink also points at .harness-ai/skills/local/example" \
+        || { echo "  [FAIL] .agents symlink target unexpected"; exit 1; }
     grep -qE 'claude +local +1 +1' {{workspace}}-run1.log \
-        && echo "  [OK] sync summary counts local: seen=1 linked=1" \
-        || { echo "  [FAIL] sync summary did not show local seen=1 linked=1"; exit 1; }
+        && echo "  [OK] sync summary counts local: seen=1 linked=1 (claude)" \
+        || { echo "  [FAIL] sync summary did not show local seen=1 linked=1 for claude"; exit 1; }
+    grep -qE 'agents +local +1 +1' {{workspace}}-run1.log \
+        && echo "  [OK] sync summary counts local: seen=1 linked=1 (agents)" \
+        || { echo "  [FAIL] sync summary did not show local seen=1 linked=1 for agents"; exit 1; }
     @echo "==> Second run (forced, no changes) — must not double-count or loop..."
     rm -f {{workspace}}/.harness-ai/lock
     {{uv}} \
@@ -236,7 +251,7 @@ test-local-source: clean
         --install-defaults true \
         | tee {{workspace}}-run2.log
     grep -qE 'claude +local +1 +1' {{workspace}}-run2.log \
-        && echo "  [OK] second run: local count still seen=1 linked=1 (no self-reference double-count)" \
+        && echo "  [OK] second run: local count still seen=1 linked=1" \
         || { echo "  [FAIL] second run local count changed"; exit 1; }
     # Regression (design.md D6a refinement, found via real-workspace testing):
     # the per-tool cleanup call runs before the local-linking pass and, on an
@@ -250,8 +265,8 @@ test-local-source: clean
     grep -qE 'claude +local +1 +1 +0' {{workspace}}-run2.log \
         && echo "  [OK] second run: removed=0 for local (no spurious unlink+relink churn)" \
         || { echo "  [FAIL] CRITICAL: local skill was spuriously removed+recreated on an unchanged second run"; exit 1; }
-    @echo "==> Removing the local skill by hand — third run must clean up only the dangling symlink..."
-    rm -rf {{workspace}}/.agents/skills/example
+    @echo "==> Removing the local skill by hand — third run must clean up only the dangling symlinks..."
+    rm -rf {{workspace}}/.harness-ai/skills/local/example
     rm -f {{workspace}}/.harness-ai/lock
     {{uv}} \
         --workspace {{workspace}} \
@@ -264,10 +279,13 @@ test-local-source: clean
     test ! -e {{workspace}}/.claude/skills/example \
         && echo "  [OK] dangling .claude/skills/example symlink removed" \
         || { echo "  [FAIL] .claude/skills/example still present"; exit 1; }
-    @echo "==> Regression: skills.exclude.keys on a local skill must remove only the tool-dir symlink, never the real .agents/skills source..."
-    mkdir -p {{workspace}}/.agents/skills/example2
+    test ! -e {{workspace}}/.agents/skills/example \
+        && echo "  [OK] dangling .agents/skills/example symlink removed too" \
+        || { echo "  [FAIL] .agents/skills/example still present"; exit 1; }
+    @echo "==> Regression: skills.exclude.keys on a local skill must remove only the tool-dir symlinks, never the real .harness-ai/skills/local source..."
+    mkdir -p {{workspace}}/.harness-ai/skills/local/example2
     printf -- '---\nname: example2\ndescription: Test local skill.\n---\n\nLocal skill body.\n' \
-        > {{workspace}}/.agents/skills/example2/SKILL.md
+        > {{workspace}}/.harness-ai/skills/local/example2/SKILL.md
     rm -f {{workspace}}/.harness-ai/lock
     {{uv}} \
         --workspace {{workspace}} \
@@ -277,7 +295,7 @@ test-local-source: clean
         --create-file-setting false \
         --update-gitignore false \
         --install-defaults true
-    test -f {{workspace}}/.agents/skills/example2/SKILL.md \
+    test -f {{workspace}}/.harness-ai/skills/local/example2/SKILL.md \
         && echo "  [OK] real source file present before exclusion" \
         || { echo "  [FAIL] setup failed: example2 source missing"; exit 1; }
     rm -f {{workspace}}/.harness-ai/lock
@@ -290,13 +308,48 @@ test-local-source: clean
         --update-gitignore false \
         --install-defaults true \
         --skills-exclude-keys example2
-    test -f {{workspace}}/.agents/skills/example2/SKILL.md \
-        && echo "  [OK] real .agents/skills/example2 source file SURVIVED exclusion (not deleted)" \
+    test -f {{workspace}}/.harness-ai/skills/local/example2/SKILL.md \
+        && echo "  [OK] real .harness-ai/skills/local/example2 source file SURVIVED exclusion (not deleted)" \
         || { echo "  [FAIL] CRITICAL: skills.exclude.keys deleted the user's real local skill file"; exit 1; }
     test ! -e {{workspace}}/.claude/skills/example2 \
         && echo "  [OK] only the dangling .claude/skills/example2 symlink was removed" \
         || { echo "  [FAIL] .claude/skills/example2 symlink was not removed"; exit 1; }
     rm -f {{workspace}}-run1.log {{workspace}}-run2.log
+
+# Migration safety (design.md D4 of harness-ai-local-canonical-store): an
+# unmigrated pre-1.0 workspace still has a real .agents/skills/<key>/SKILL.md
+# file at the old `local` location. Establishing the new symlink there must be
+# blocked by the foreign-entry-safety guard, not silently clobbered, so the
+# workspace maintainer gets a clear [foreign] signal to run the `mv` by hand.
+test-local-source-migration-safety: clean
+    @echo "==> Simulating an unmigrated workspace: old-shape real file + new-shape source both present..."
+    mkdir -p {{workspace}}/.agents/skills/example {{workspace}}/.harness-ai/skills/local/example
+    printf '# Not harness-ai\nOLD-SHAPE-REAL-FILE-MARKER\n' > {{workspace}}/.agents/skills/example/SKILL.md
+    printf -- '---\nname: example\ndescription: Test local skill.\n---\n\nLocal skill body.\n' \
+        > {{workspace}}/.harness-ai/skills/local/example/SKILL.md
+    @echo "==> Running scaffold (tools: claude)..."
+    {{uv}} \
+        --workspace {{workspace}} \
+        --tools claude \
+        --create-file-mcp false \
+        --create-file-hooks false \
+        --create-file-setting false \
+        --update-gitignore false \
+        --install-defaults true \
+        | tee {{workspace}}-run1.log
+    grep -q "OLD-SHAPE-REAL-FILE-MARKER" {{workspace}}/.agents/skills/example/SKILL.md \
+        && echo "  [OK] old-shape real file left byte-for-byte untouched" \
+        || { echo "  [FAIL] CRITICAL: old-shape file was overwritten"; exit 1; }
+    test ! -L {{workspace}}/.agents/skills/example \
+        && echo "  [OK] .agents/skills/example is still a real dir, not a symlink" \
+        || { echo "  [FAIL] CRITICAL: .agents/skills/example became a symlink over the unmigrated file"; exit 1; }
+    grep -q "\[foreign\] skill 'example' (agents, source: local)" {{workspace}}-run1.log \
+        && echo "  [OK] blocked migration reported inline with a [foreign] line" \
+        || { echo "  [FAIL] no [foreign] line printed for the blocked local migration"; exit 1; }
+    grep -q "unmanaged entries" {{workspace}}-run1.log \
+        && echo "  [OK] unmanaged section printed" \
+        || { echo "  [FAIL] unmanaged section missing"; exit 1; }
+    rm -f {{workspace}}-run1.log
 
 # Verify category/subcategory/key include+exclude filtering (skills only,
 # design.md D5): restrict to one category, then carve one key out of it.
@@ -326,8 +379,8 @@ test-category-filter: clean
 
 # Auto-detected `workspace` source from .harness-ai/local/ (design.md
 # D1-D4): repo-shaped, no config entry. Proves the full precedence chain —
-# workspace overrides default, but a real `local` (.agents/skills) entry
-# still overrides workspace (D2 unchanged).
+# workspace overrides default, but a real `local` (.harness-ai/skills/local/)
+# entry still overrides workspace (D2 unchanged).
 test-workspace-source: clean
     @echo "==> Seeding .harness-ai/local/ overriding the bundled 'agent-creator' skill..."
     mkdir -p {{workspace}}/.harness-ai/local/skills/agent-creator {{workspace}}/.harness-ai/local/agents
@@ -385,14 +438,15 @@ test-workspace-source: clean
     grep -q "WORKSPACE-OVERRIDE-BODY-MARKER-V2" {{workspace}}/.harness-ai/skills/workspace/agent-creator/claude.SKILL.md \
         && echo "  [OK] the edited body was actually picked up by the real run" \
         || { echo "  [FAIL] edited workspace body was not materialized"; exit 1; }
-    @echo "==> Adding a real 'local' (.agents/skills) entry for the same key — local must still win over workspace..."
-    # agent-creator's canonical .agents slot is already a symlink from workspace's
-    # own prior render (the always-on `agents` profile) — remove it first so the
-    # printf below creates a genuinely real file, not a write-through-the-symlink.
-    rm -rf {{workspace}}/.agents/skills/agent-creator
-    mkdir -p {{workspace}}/.agents/skills/agent-creator
+    @echo "==> Adding a real 'local' (.harness-ai/skills/local/) entry for the same key — local must still win over workspace..."
+    # No need to touch .agents/skills/agent-creator by hand first: it's
+    # currently a symlink into workspace's canonical store, and the normal
+    # cleanup-then-local-linking pass removes that stale symlink and recreates
+    # it pointing at the local target on its own — same as any other same-key
+    # source migration (design.md D6a).
+    mkdir -p {{workspace}}/.harness-ai/skills/local/agent-creator
     printf -- '---\nname: agent-creator\ndescription: Local override of agent-creator.\n---\n\nLOCAL-OVERRIDE-BODY-MARKER\n' \
-        > {{workspace}}/.agents/skills/agent-creator/SKILL.md
+        > {{workspace}}/.harness-ai/skills/local/agent-creator/SKILL.md
     rm -f {{workspace}}/.harness-ai/lock
     {{uv}} \
         --workspace {{workspace}} \
@@ -406,9 +460,12 @@ test-workspace-source: clean
     grep -q "\[collision\] skill 'agent-creator' claimed by local — skipping render from 'workspace'" {{workspace}}-run2.log \
         && echo "  [OK] collision report: local skipped workspace's render, as designed" \
         || { echo "  [FAIL] expected collision line not found"; exit 1; }
-    readlink {{workspace}}/.claude/skills/agent-creator | grep -q '.agents/skills/agent-creator' \
+    readlink {{workspace}}/.claude/skills/agent-creator | grep -q '.harness-ai/skills/local/agent-creator' \
         && echo "  [OK] agent-creator now symlinks to the real local source (local beats workspace)" \
         || { echo "  [FAIL] agent-creator did not resolve to the local source"; exit 1; }
+    readlink {{workspace}}/.agents/skills/agent-creator | grep -q '.harness-ai/skills/local/agent-creator' \
+        && echo "  [OK] .agents/skills/agent-creator also re-pointed to the local source (agents profile no longer exempt)" \
+        || { echo "  [FAIL] .agents/skills/agent-creator did not resolve to the local source"; exit 1; }
     rm -f {{workspace}}-run1.log {{workspace}}-run2.log
 
 # Foreign-entry safety (design.md D5/D6): a real, non-symlink file harness-ai

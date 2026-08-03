@@ -4,17 +4,17 @@ harness-ai is a devcontainer feature and standalone CLI that scaffolds AI agent 
 
 ## Repository Layout
 
-A scaffolded **workspace** (not this repo) additionally gets a canonical store for `default`/content-repo/`workspace` output, tracked in git:
+A scaffolded **workspace** (not this repo) additionally gets a canonical store for every source's output, tracked in git:
 
 ```
 <workspace>/.harness-ai/
 ├── config.yaml              # workspace config (tracked)
 ├── lock, manifest.json      # harness-ai's own run state (gitignored)
-├── skills/<source>/<key>/   # one <profile>.SKILL.md per active tool profile + references/
-└── agents/<source>/<key>/   # one <profile>.md per active tool profile
+├── skills/<source>/<key>/   # one <profile>.SKILL.md per active tool profile + references/ (local: just SKILL.md + references/, no profiles)
+└── agents/<source>/<key>/   # one <profile>.md per active tool profile (local: flat <key>.md, no per-key subdir)
 ```
 
-`.claude/skills/<key>`, `.opencode/skills/<key>`, and `.agents/skills/<key>` (and the agent equivalents) are symlinks into that store — see README's ["Sources and the canonical store"](README.md#sources-and-the-canonical-store). `local` content (this workspace's own `.agents/skills/`/`.agents/agents/`) has no canonical-store entry — the author's file is symlinked to directly. Before any of the above, harness-ai checks whether the tool-dir slot already holds real, unaccounted-for content — see ["Foreign content is never overwritten"](README.md#foreign-content-is-never-overwritten).
+`.claude/skills/<key>`, `.opencode/skills/<key>`, and `.agents/skills/<key>` (and the agent equivalents) are symlinks into that store — see README's ["Sources and the canonical store"](README.md#sources-and-the-canonical-store). `local` content (hand-authored directly at `.harness-ai/skills/local/`/`.harness-ai/agents/local/`) uses the same canonical-store-plus-symlink shape as every other source, just with one file per key instead of one per tool profile. Before any of the above, harness-ai checks whether the tool-dir slot already holds real, unaccounted-for content — see ["Foreign content is never overwritten"](README.md#foreign-content-is-never-overwritten).
 
 ```
 harness-ai/
@@ -102,7 +102,7 @@ Four source kinds, three different workflows (`workspace` reuses the content-rep
 | `default` | harness-ai's own PRs | in `metadata.yml`, never in the body | see below |
 | a content repo | that repo's own PRs | same shape as `default` — a content repo is structurally identical to `content/` | same steps, against the content repo's own `agents/`/`skills/` tree |
 | `workspace` (a consuming workspace's `.harness-ai/local/`) | that workspace directly | same shape as `default`/a content repo | same steps, against `.harness-ai/local/agents/`/`.harness-ai/local/skills/` — auto-detected, no config entry |
-| `local` (a consuming workspace's `.agents/skills/`) | that workspace directly | **inline**, in the file itself | drop a frontmatter'd `SKILL.md`/`<key>.md` under `.agents/skills/<key>/` or `.agents/agents/<key>.md` — nothing to register, harness-ai discovers it automatically on the next scaffold |
+| `local` (a consuming workspace's `.harness-ai/skills/local/`) | that workspace directly | **inline**, in the file itself | drop a frontmatter'd `SKILL.md`/`<key>.md` under `.harness-ai/skills/local/<key>/` or `.harness-ai/agents/local/<key>.md` — nothing to register, harness-ai discovers it automatically on the next scaffold |
 
 The **"no YAML frontmatter in the body"** rule below is scoped to `default`/content-repo content only — `local` is the opposite on purpose (inline frontmatter, no `metadata.yml`), matching how Claude Code's own Skill/Agent authoring tools write files directly into a workspace.
 
@@ -166,14 +166,14 @@ An optional `agents:` block (name + description only, same as agents above) can 
 
 ### Adding a `local` skill or agent (a consuming workspace)
 
-No registration step: drop the file where the tool directories will symlink to it.
+No registration step: drop the file in `local`'s canonical store and every tool directory (`.agents` included) symlinks to it.
 
 ```
-.agents/skills/my-project-skill/SKILL.md   # frontmatter inline — name/description in the file
-.agents/agents/my-project-agent.md          # frontmatter inline
+.harness-ai/skills/local/my-project-skill/SKILL.md   # frontmatter inline — name/description in the file
+.harness-ai/agents/local/my-project-agent.md          # frontmatter inline
 ```
 
-The next `harnessai install`/`sync` discovers it (any real, non-symlinked file under those two directories) and symlinks it into every active tool's directory. See [README's "Local skills"](README.md#local-skills) for the full model and the collision rule with `default`/content-repo keys of the same name.
+The next `harnessai install`/`sync` discovers it (any file under those two directories) and symlinks it into every active tool's directory. See [README's "Local skills"](README.md#local-skills) for the full model, the migration step from the pre-1.0 `.agents/skills/` layout, and the collision rule with `default`/content-repo keys of the same name.
 
 ### Taxonomy
 

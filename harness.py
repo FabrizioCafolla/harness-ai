@@ -4,8 +4,9 @@
 Reads content files (pure Markdown, no frontmatter) from content/ and injects
 per-tool metadata from config/agents.yml and config/skills.yml at runtime.
 Supports merging additional content from N named, pre-cloned external
-repositories (`contentRepos`), plus a `local` source discovered directly in
-the consuming workspace at `.agents/skills/` and `.agents/agents/`.
+repositories (`contentRepos`), plus a `local` source authored directly in
+the consuming workspace's own canonical store at `.harness-ai/skills/local/`
+and `.harness-ai/agents/local/`.
 """
 import argparse
 import hashlib
@@ -297,9 +298,11 @@ def _cleanup_stale_for_tool(
       `local`'s own linking pass — not preserved as if it were an in-place
       migration among same-shaped sources.
 
-    `local`'s own entries are never deleted from `.agents/skills`/`.agents/agents`
-    (that's the author's own source); only a dangling tool-dir symlink whose
-    local source disappeared is removed.
+    `local`'s own canonical store (`.harness-ai/skills/local`/`.harness-ai/agents/local`
+    — the author's actual source, design.md D3) is never deleted here; only a
+    dangling tool-dir symlink (in `.claude`/`.opencode`/`.agents`/etc., all of
+    them pure render targets for `local` now) whose local source disappeared
+    is removed.
     """
     removed_counts: dict[str, int] = {}
 
@@ -331,15 +334,6 @@ def _cleanup_stale_for_tool(
         all_current_agents.update(src_data.get("agents", []))
 
     for source_name, prev in old_sources.items():
-        if tool == "agents" and source_name == "local":
-            # Nothing was ever rendered/linked here — for the `agents`
-            # profile, `.agents/skills`/`.agents/agents` (== skills_base/
-            # agents_dir for this tool) *is* the local source itself, not
-            # a harness-managed destination (scaffold() never calls
-            # _link_local_skill/_link_local_agent for tool == "agents").
-            # A key falling out of skills.exclude.keys must never turn
-            # into rmtree-ing the user's real, hand-authored directory.
-            continue
         current = new_sources.get(source_name, {"skills": [], "agents": []})
         stale_skills = set(prev.get("skills", [])) - set(current.get("skills", []))
         stale_agents = set(prev.get("agents", [])) - set(current.get("agents", []))
@@ -460,27 +454,27 @@ def _tool_meta_for(entry: dict, tool: str, defaults: dict) -> dict | None:
 
 
 def _scan_local_source(ws: pathlib.Path) -> tuple[dict[str, dict], dict[str, dict]]:
-    """Discover `local` skills/agents: real (non-symlink) files directly under
-    `.agents/skills/<key>/SKILL.md` and `.agents/agents/<key>.md` — see design.md
-    D2/D9. A symlink there is harness-ai's own prior `agents`-profile output for
-    a `default`/repo-sourced key, never the author's content, and must not be
-    rediscovered as `local` (the self-reference guard).
-    """
+    """Discover `local` skills/agents: files authored directly under
+    `.harness-ai/skills/local/<key>/SKILL.md` and `.harness-ai/agents/local/<key>.md`
+    — see design.md D1/D2. This is `local`'s own canonical store, never a
+    render target for any other source, so no self-reference guard is needed
+    here (unlike the old `.agents/skills`/`.agents/agents` location, which
+    used to double as a render target too)."""
     skills: dict[str, dict] = {}
     agents: dict[str, dict] = {}
 
-    skills_dir = ws / ".agents" / "skills"
+    skills_dir = ws / _HARNESS_DIR / "skills" / "local"
     if skills_dir.is_dir():
         for entry in sorted(skills_dir.iterdir()):
             skill_md = entry / "SKILL.md"
-            if skill_md.is_file() and not skill_md.is_symlink():
+            if skill_md.is_file():
                 meta, _ = _parse_frontmatter(skill_md.read_text())
                 skills[entry.name] = meta
 
-    agents_dir = ws / ".agents" / "agents"
+    agents_dir = ws / _HARNESS_DIR / "agents" / "local"
     if agents_dir.is_dir():
         for entry in sorted(agents_dir.iterdir()):
-            if entry.suffix == ".md" and entry.is_file() and not entry.is_symlink():
+            if entry.suffix == ".md" and entry.is_file():
                 meta, _ = _parse_frontmatter(entry.read_text())
                 agents[entry.stem] = meta
 
@@ -729,7 +723,7 @@ def _link_local_skill(ws: pathlib.Path, tool_paths: dict, tool: str, key: str) -
     skills_base = base / tool_paths["skills"]["dir"]
     skills_base.mkdir(parents=True, exist_ok=True)
     dest = skills_base / key
-    result = _make_symlink(dest, ws / ".agents" / "skills" / key)
+    result = _make_symlink(dest, ws / _HARNESS_DIR / "skills" / "local" / key)
     if result == "foreign":
         print(f"  │  [foreign] skill '{key}' ({tool}, source: local) — real content already at {dest.relative_to(ws)}, left untouched")
     return result != "foreign"
@@ -742,7 +736,7 @@ def _link_local_agent(ws: pathlib.Path, tool_paths: dict, tool: str, key: str) -
     agents_dir = base / tool_paths["agents"]["dir"]
     agents_dir.mkdir(parents=True, exist_ok=True)
     dest = agents_dir / f"{key}{suffix}"
-    result = _make_symlink(dest, ws / ".agents" / "agents" / f"{key}.md")
+    result = _make_symlink(dest, ws / _HARNESS_DIR / "agents" / "local" / f"{key}.md")
     if result == "foreign":
         print(f"  │  [foreign] agent '{key}' ({tool}, source: local) — real content already at {dest.relative_to(ws)}, left untouched")
     return result != "foreign"
@@ -859,11 +853,10 @@ def scaffold(
                 entry = filtered_skills_by_key[key]["entry"]
                 if key in local_skills:
                     # local always wins on a same-key collision (design.md D2)
-                    # — for every tool, not just the always-on `agents`
+                    # — for every tool, including the always-on `agents`
                     # profile: rendering here anyway would just get clobbered
                     # a few lines down by _link_local_skill, double-counted
-                    # in the report, and (for the `agents` tool specifically)
-                    # would collide with the local source's own directory.
+                    # in the report.
                     print(f"  │  [collision] skill '{key}' claimed by local — skipping render from '{source_name}'")
                     _bump(tool, source_name, "skipped")
                     continue
@@ -932,13 +925,13 @@ def scaffold(
             removed_counts[(tool, source_name)] = cnt
 
         # --- local skills + agents ---
+        # `local` renders into every active tool including `agents` (design.md
+        # D3) — `.harness-ai/skills/local`/`.harness-ai/agents/local` is now a
+        # real canonical store, never a render target itself, so there's no
+        # same-path collision left to special-case for the `agents` profile.
         linked_local_skill_keys: list[str] = []
         for key in included_local_skill_keys:
             _bump(tool, "local", "seen")
-            if tool == "agents":
-                linked_local_skill_keys.append(key)
-                _bump(tool, "local", "linked")
-                continue
             if _link_local_skill(ws, tool_paths, tool, key):
                 linked_local_skill_keys.append(key)
                 _bump(tool, "local", "linked")
@@ -947,10 +940,6 @@ def scaffold(
         linked_local_agent_keys: list[str] = []
         for key in sorted(local_agents):
             _bump(tool, "local", "seen")
-            if tool == "agents":
-                linked_local_agent_keys.append(key)
-                _bump(tool, "local", "linked")
-                continue
             if _link_local_agent(ws, tool_paths, tool, key):
                 linked_local_agent_keys.append(key)
                 _bump(tool, "local", "linked")
