@@ -36,8 +36,10 @@ All of these call `harness.py` directly — they bypass `cli.sh`, so they're fas
 | `just test-hooks`       | You changed hook precedence or the `hooks/claude.json` / `hooks/opencode.ts` content-repo override paths. |
 | `just test-content-repo`| You changed `_load_content`'s merge logic (agents/skills metadata, or `paths.yml`) or anything about how a content repo's skills/agents show up in output. |
 | `just test-symlinks`    | You changed the canonical-store render step or the tool-dir symlink logic (`_render_skill`/`_render_agent`/`_make_symlink`) for `default`/`contentRepos` sources. |
-| `just test-local-source`| You changed `_scan_local_source`, the `local`-linking functions, or `_cleanup_stale`'s no-delete guarantee for `local` — especially the self-reference guard (design.md D9). |
+| `just test-local-source`| You changed `_scan_local_source`, the `local`-linking functions, or `_cleanup_stale_for_tool`'s no-delete guarantee for `local` — especially the self-reference guard (design.md D9). |
 | `just test-category-filter` | You changed `_apply_skill_filter` or the `skills.include`/`skills.exclude` config/CLI plumbing. |
+| `just test-workspace-source` | You changed the auto-detected `workspace` source (`.harness-ai/local/`) — detection, load-order precedence against `default`/`contentRepos`, or its interaction with `local`'s absolute precedence. |
+| `just test-foreign-entry` | You changed `_make_symlink`'s foreign-content guard, any of its four call sites, the end-of-run "unmanaged" sweep, or `_cleanup_stale_for_tool`'s call-site ordering (must run before the `local`-linking pass, per design.md D6a). |
 | `just test-e2e`         | You changed `cli.sh` itself: config resolution, install gating, PATH handling, `init-extension`, multi-repo cloning, or anything a real `install`/`sync` invocation exercises that the recipes above don't (they call `harness.py` directly, not `cli.sh`). |
 | `just update-skills`    | You're refreshing a bundled skill that tracks an upstream `ref:` (currently `caveman`, `skill-creator`) — not a general-purpose recipe to run on every change. |
 

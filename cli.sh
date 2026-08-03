@@ -683,7 +683,7 @@ for key, var in (
 # emitted as one CFG_CONTENT_REPOS delimited blob (record separator \x1e
 # between repos, unit separator \x1f between name/url/ref), decoded in
 # _load_config — same pattern as CFG_CUSTOM_TOOLS.
-RESERVED_SOURCE_NAMES = {"default", "local"}
+RESERVED_SOURCE_NAMES = {"default", "local", "workspace"}
 
 
 def _slugify(url):
