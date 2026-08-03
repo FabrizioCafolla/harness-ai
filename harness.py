@@ -263,10 +263,10 @@ def _cleanup_stale_for_tool(
     old_sources: dict,
     new_sources: dict,
     tool_paths: dict,
-) -> dict[str, int]:
+) -> dict[tuple[str, str], int]:
     """Remove one tool's skill/agent symlinks (and, for default/repo/workspace
     sources, their canonical store entries) that were managed in a previous
-    run but are no longer current, keyed by source — see design.md D7/D9/D6a.
+    run but are no longer current, keyed by (source, kind) — see design.md D7/D9/D6a.
 
     Must be called *between* the `default`/`contentRepos`/`workspace` render
     loop and the `local`-linking pass, with `new_sources` containing that
@@ -304,7 +304,11 @@ def _cleanup_stale_for_tool(
     them pure render targets for `local` now) whose local source disappeared
     is removed.
     """
-    removed_counts: dict[str, int] = {}
+    # Keyed by (source_name, kind) — "skill"/"agent" tracked separately so the
+    # sync summary table's per-kind rows report accurate removed counts
+    # instead of a skill+agent total misattributed to whichever kind happens
+    # to be printed.
+    removed_counts: dict[tuple[str, str], int] = {}
 
     if not old_sources or not isinstance(next(iter(old_sources.values())), dict):
         # Pre-upgrade flat manifest shape ({skills: [...], agents: [...]})
@@ -337,7 +341,8 @@ def _cleanup_stale_for_tool(
         current = new_sources.get(source_name, {"skills": [], "agents": []})
         stale_skills = set(prev.get("skills", [])) - set(current.get("skills", []))
         stale_agents = set(prev.get("agents", [])) - set(current.get("agents", []))
-        removed = 0
+        removed_skills = 0
+        removed_agents = 0
 
         for key in sorted(stale_skills):
             if key in all_current_skills:
@@ -348,11 +353,11 @@ def _cleanup_stale_for_tool(
                 stale_dir = skills_base / key
                 if stale_dir.is_symlink():
                     stale_dir.unlink()
-                    removed += 1
+                    removed_skills += 1
                     print(f"  [cleanup] removed stale {source_name} skill symlink: {stale_dir.relative_to(ws)}")
                 elif stale_dir.exists():
                     shutil.rmtree(stale_dir)
-                    removed += 1
+                    removed_skills += 1
                     print(f"  [cleanup] removed stale {source_name} skill dir: {stale_dir.relative_to(ws)}/")
             if source_name != "local":
                 canonical_dir = ws / _HARNESS_DIR / "skills" / source_name / key
@@ -366,15 +371,17 @@ def _cleanup_stale_for_tool(
                 stale_file = agents_dir / f"{key}{agent_suffix}"
                 if stale_file.is_symlink() or stale_file.exists():
                     stale_file.unlink()
-                    removed += 1
+                    removed_agents += 1
                     print(f"  [cleanup] removed stale {source_name} agent: {stale_file.relative_to(ws)}")
             if source_name != "local":
                 canonical_dir = ws / _HARNESS_DIR / "agents" / source_name / key
                 if canonical_dir.exists():
                     shutil.rmtree(canonical_dir)
 
-        if removed:
-            removed_counts[source_name] = removed
+        if removed_skills:
+            removed_counts[(source_name, "skill")] = removed_skills
+        if removed_agents:
+            removed_counts[(source_name, "agent")] = removed_agents
 
     return removed_counts
 
@@ -823,16 +830,20 @@ def scaffold(
     old_manifest = _read_manifest(ws)
     new_manifest: dict = {}
     gitignore_entries: list[str] = [f"{_HARNESS_DIR}/{_LOCK_FILE}", f"{_HARNESS_DIR}/{_MANIFEST_FILE}"]
-    counters: dict[tuple[str, str], dict[str, int]] = {}
+    # Keyed by (tool, source, kind) — "skill"/"agent" tracked separately so
+    # the sync summary table never reports a skill+agent total under a single
+    # number (previously the `agents` tool row showed the *combined* skill+
+    # agent count rendered into `.agents/`, not the actual agent count).
+    counters: dict[tuple[str, str, str], dict[str, int]] = {}
     unmanaged_entries: list[pathlib.Path] = []
-    removed_counts: dict[tuple[str, str], int] = {}
+    removed_counts: dict[tuple[str, str, str], int] = {}
 
-    def _bump(tool: str, source: str, field: str) -> None:
-        c = counters.setdefault((tool, source), {"seen": 0, "linked": 0, "skipped": 0, "foreign": 0})
+    def _bump(tool: str, source: str, kind: str, field: str) -> None:
+        c = counters.setdefault((tool, source, kind), {"seen": 0, "linked": 0, "skipped": 0, "foreign": 0})
         c[field] += 1
 
-    def _bump_by(tool: str, source: str, field: str, amount: int) -> None:
-        c = counters.setdefault((tool, source), {"seen": 0, "linked": 0, "skipped": 0, "foreign": 0})
+    def _bump_by(tool: str, source: str, kind: str, field: str, amount: int) -> None:
+        c = counters.setdefault((tool, source, kind), {"seen": 0, "linked": 0, "skipped": 0, "foreign": 0})
         c[field] += amount
 
     for tool in active_tools:
@@ -858,12 +869,12 @@ def scaffold(
                     # a few lines down by _link_local_skill, double-counted
                     # in the report.
                     print(f"  │  [collision] skill '{key}' claimed by local — skipping render from '{source_name}'")
-                    _bump(tool, source_name, "skipped")
+                    _bump(tool, source_name, "skill", "skipped")
                     continue
                 meta = _tool_meta_for(entry, tool, skills_defaults.get(tool, {}) or {})
                 if meta is None:
                     continue
-                _bump(tool, source_name, "seen")
+                _bump(tool, source_name, "skill", "seen")
                 content_root = source_roots[source_name]
                 filename = tool_paths["skills"]["filename"]
                 content_file = content_root / "skills" / key / filename
@@ -875,23 +886,23 @@ def scaffold(
                 rendered, refs_foreign = _render_skill(ws, tool, tool_paths, source_name, key, meta, body, refs_src if refs_src.exists() else None)
                 if rendered:
                     rendered_skills.append(key)
-                    _bump(tool, source_name, "linked")
+                    _bump(tool, source_name, "skill", "linked")
                 else:
-                    _bump(tool, source_name, "foreign")
+                    _bump(tool, source_name, "skill", "foreign")
                 if refs_foreign:
-                    _bump(tool, source_name, "foreign")
+                    _bump(tool, source_name, "skill", "foreign")
 
             rendered_agents: list[str] = []
             for key in sorted(k for k, info in agents_by_key.items() if info["source"] == source_name):
                 entry = agents_by_key[key]["entry"]
                 if key in local_agents:
                     print(f"  │  [collision] agent '{key}' claimed by local — skipping render from '{source_name}'")
-                    _bump(tool, source_name, "skipped")
+                    _bump(tool, source_name, "agent", "skipped")
                     continue
                 meta = _tool_meta_for(entry, tool, agents_defaults.get(tool, {}) or {})
                 if meta is None:
                     continue
-                _bump(tool, source_name, "seen")
+                _bump(tool, source_name, "agent", "seen")
                 content_root = source_roots[source_name]
                 content_file = content_root / "agents" / f"{key}.md"
                 if not content_file.exists():
@@ -901,14 +912,14 @@ def scaffold(
                 rendered = _render_agent(ws, tool, tool_paths, source_name, key, meta, body)
                 if rendered:
                     rendered_agents.append(key)
-                    _bump(tool, source_name, "linked")
+                    _bump(tool, source_name, "agent", "linked")
                 else:
-                    _bump(tool, source_name, "foreign")
+                    _bump(tool, source_name, "agent", "foreign")
 
             new_manifest[tool][source_name] = {"skills": rendered_skills, "agents": rendered_agents}
             filtered_out = skills_filtered_out_by_source.get(source_name, 0)
             if filtered_out:
-                _bump_by(tool, source_name, "skipped", filtered_out)
+                _bump_by(tool, source_name, "skill", "skipped", filtered_out)
 
         # --- Cleanup, BEFORE the local-linking pass (design.md D6a) ---
         # A key migrating from a default/contentRepos/workspace source to
@@ -921,8 +932,8 @@ def scaffold(
         # because the linking pass itself hasn't run yet — found via
         # real-workspace testing (design.md D6a refinement).
         cleanup_preview = {**new_manifest[tool], "local": {"skills": included_local_skill_keys, "agents": sorted(local_agents)}}
-        for source_name, cnt in _cleanup_stale_for_tool(ws, tool, old_manifest.get(tool, {}), cleanup_preview, tool_paths).items():
-            removed_counts[(tool, source_name)] = cnt
+        for (source_name, kind), cnt in _cleanup_stale_for_tool(ws, tool, old_manifest.get(tool, {}), cleanup_preview, tool_paths).items():
+            removed_counts[(tool, source_name, kind)] = cnt
 
         # --- local skills + agents ---
         # `local` renders into every active tool including `agents` (design.md
@@ -931,20 +942,20 @@ def scaffold(
         # same-path collision left to special-case for the `agents` profile.
         linked_local_skill_keys: list[str] = []
         for key in included_local_skill_keys:
-            _bump(tool, "local", "seen")
+            _bump(tool, "local", "skill", "seen")
             if _link_local_skill(ws, tool_paths, tool, key):
                 linked_local_skill_keys.append(key)
-                _bump(tool, "local", "linked")
+                _bump(tool, "local", "skill", "linked")
             else:
-                _bump(tool, "local", "foreign")
+                _bump(tool, "local", "skill", "foreign")
         linked_local_agent_keys: list[str] = []
         for key in sorted(local_agents):
-            _bump(tool, "local", "seen")
+            _bump(tool, "local", "agent", "seen")
             if _link_local_agent(ws, tool_paths, tool, key):
                 linked_local_agent_keys.append(key)
-                _bump(tool, "local", "linked")
+                _bump(tool, "local", "agent", "linked")
             else:
-                _bump(tool, "local", "foreign")
+                _bump(tool, "local", "agent", "foreign")
         new_manifest[tool]["local"] = {"skills": linked_local_skill_keys, "agents": linked_local_agent_keys}
 
         # --- Unmanaged tool-dir entries (design.md D6, foreign-entry-safety) ---
@@ -1016,8 +1027,8 @@ def scaffold(
         tool_paths = paths_cfg.get(tool)
         if not tool_paths:
             continue
-        for source_name, cnt in _cleanup_stale_for_tool(ws, tool, tool_old, {}, tool_paths).items():
-            removed_counts[(tool, source_name)] = cnt
+        for (source_name, kind), cnt in _cleanup_stale_for_tool(ws, tool, tool_old, {}, tool_paths).items():
+            removed_counts[(tool, source_name, kind)] = cnt
 
     # --- Shared MCP file (.mcp.json) ---
     if create_file_mcp:
@@ -1069,12 +1080,16 @@ def scaffold(
     _update_agents_md(ws, feature_dir, repo_dirs_only, all_skill_keys, all_agent_keys, behavior_caveman)
 
     # --- Sync summary table (design.md D7, D6/foreign-entry-safety for the
-    # `foreign` column) ---
+    # `foreign` column) --- `kind` (skill/agent) is its own column: the
+    # `agents` row is a render-target tool name (the always-on `.agents/`
+    # profile mirrors skills too), not a synonym for "agent count" — folding
+    # skill+agent counts into one number under that row previously made it
+    # look like N agents existed when almost all of them were skills.
     print("  ── sync summary ──────────────────────────────────────────")
-    print(f"  {'tool':<10} {'source':<20} {'seen':>5} {'linked':>7} {'removed':>8} {'filtered':>9} {'foreign':>8}")
-    for (tool, source), c in sorted(counters.items()):
-        removed = removed_counts.get((tool, source), 0)
-        print(f"  {tool:<10} {source:<20} {c['seen']:>5} {c['linked']:>7} {removed:>8} {c['skipped']:>9} {c['foreign']:>8}")
+    print(f"  {'tool':<10} {'source':<20} {'kind':<6} {'seen':>5} {'linked':>7} {'removed':>8} {'filtered':>9} {'foreign':>8}")
+    for (tool, source, kind), c in sorted(counters.items()):
+        removed = removed_counts.get((tool, source, kind), 0)
+        print(f"  {tool:<10} {source:<20} {kind:<6} {c['seen']:>5} {c['linked']:>7} {removed:>8} {c['skipped']:>9} {c['foreign']:>8}")
     print("")
 
     if unmanaged_entries:

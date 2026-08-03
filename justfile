@@ -233,10 +233,10 @@ test-local-source: clean
     readlink {{workspace}}/.agents/skills/example | grep -q '.harness-ai/skills/local/example' \
         && echo "  [OK] .agents symlink also points at .harness-ai/skills/local/example" \
         || { echo "  [FAIL] .agents symlink target unexpected"; exit 1; }
-    grep -qE 'claude +local +1 +1' {{workspace}}-run1.log \
+    grep -qE 'claude +local +skill +1 +1' {{workspace}}-run1.log \
         && echo "  [OK] sync summary counts local: seen=1 linked=1 (claude)" \
         || { echo "  [FAIL] sync summary did not show local seen=1 linked=1 for claude"; exit 1; }
-    grep -qE 'agents +local +1 +1' {{workspace}}-run1.log \
+    grep -qE 'agents +local +skill +1 +1' {{workspace}}-run1.log \
         && echo "  [OK] sync summary counts local: seen=1 linked=1 (agents)" \
         || { echo "  [FAIL] sync summary did not show local seen=1 linked=1 for agents"; exit 1; }
     @echo "==> Second run (forced, no changes) — must not double-count or loop..."
@@ -250,7 +250,7 @@ test-local-source: clean
         --update-gitignore false \
         --install-defaults true \
         | tee {{workspace}}-run2.log
-    grep -qE 'claude +local +1 +1' {{workspace}}-run2.log \
+    grep -qE 'claude +local +skill +1 +1' {{workspace}}-run2.log \
         && echo "  [OK] second run: local count still seen=1 linked=1" \
         || { echo "  [FAIL] second run local count changed"; exit 1; }
     # Regression (design.md D6a refinement, found via real-workspace testing):
@@ -262,7 +262,7 @@ test-local-source: clean
     # and a misleading "removed" count in the sync report, forever, on every
     # run, for every local skill — not caught by the seen/linked-only regex
     # above, which doesn't look at the removed column at all.
-    grep -qE 'claude +local +1 +1 +0' {{workspace}}-run2.log \
+    grep -qE 'claude +local +skill +1 +1 +0' {{workspace}}-run2.log \
         && echo "  [OK] second run: removed=0 for local (no spurious unlink+relink churn)" \
         || { echo "  [FAIL] CRITICAL: local skill was spuriously removed+recreated on an unchanged second run"; exit 1; }
     @echo "==> Removing the local skill by hand — third run must clean up only the dangling symlinks..."
