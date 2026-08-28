@@ -228,6 +228,11 @@ your-content-repo/
 │   ├── metadata.yml    # per-tool frontmatter for each skill
 │   └── my-skill/
 │       └── SKILL.md    # skill content (no frontmatter)
+├── commands/
+│   ├── metadata.yml    # per-tool frontmatter for each command
+│   ├── my-command.md   # command content (no frontmatter)  ->  /my-command
+│   └── ns/
+│       └── other.md    # namespaced                        ->  /ns:other
 ├── hooks/              # optional: override default hook templates
 │   ├── claude.json     # replaces config/claude/hooks.json
 │   └── opencode.ts     # replaces config/opencode/rtk-plugin.ts
@@ -301,6 +306,52 @@ Delete `.harness-ai/local/` and re-sync to remove the source cleanly; nothing sp
 
 ---
 
+## Commands
+
+Commands are slash commands (`/deploy:rollback`) and ship through the same pipeline as skills and
+agents: `default` -> `contentRepos` -> `workspace` -> `local`, later sources winning an identical
+key, foreign content never overwritten.
+
+The one thing specific to commands is the key. A command is **addressed by its path**, so the key
+*is* the path under `commands/`, without the `.md`, namespace directories included:
+
+| key in `metadata.yml` | content file | rendered to | invoked as |
+| --- | --- | --- | --- |
+| `deep-task-analysis` | `commands/deep-task-analysis.md` | `.claude/commands/deep-task-analysis.md` | `/deep-task-analysis` |
+| `dev/deep-task-analysis` | `commands/dev/deep-task-analysis.md` | `.claude/commands/dev/deep-task-analysis.md` | `/dev:deep-task-analysis` |
+
+`metadata.yml` carries the per-tool frontmatter, exactly like skills and agents. For Claude that is
+`description`, `argument-hint`, `allowed-tools`, `model`:
+
+```yaml
+default:
+  claude:
+    metadata:
+      author: You
+      version: "1.0"
+  agents:
+
+commands:
+  dev/deep-task-analysis:
+    claude:
+      name: deep-task-analysis
+      description: Research, plan, then implement locally.
+      argument-hint: "<target-path> <issue-or-goal>"
+      allowed-tools: [Read, Grep, Edit, Write, Bash]
+```
+
+A `local` command needs no `metadata.yml`: write the frontmatter inline in
+`.harness-ai/commands/local/<ns>/<name>.md`, same as a local skill or agent.
+
+Cleanup removes a stale command's symlink and prunes the namespace directory it leaves empty, so a
+renamed namespace doesn't leave an empty folder in the tool's command list.
+
+Only tool profiles that declare a `commands` block in `paths.yml` receive them: today `claude` and
+the tool-neutral `agents` profile. `opencode` deliberately has none yet, since its command path
+convention hasn't been verified here. Add a `commands:` block to its profile to turn it on.
+
+---
+
 ## Local skills
 
 A **`local`** source formalizes hand-authoring a skill or agent directly in the *consuming* workspace's own canonical store, no content repo needed:
@@ -311,8 +362,11 @@ A **`local`** source formalizes hand-authoring a skill or agent directly in the 
 │   └── my-skill/
 │       ├── SKILL.md       # frontmatter INLINE (name/description in the file itself)
 │       └── references/    # optional, used as-is
-└── agents/local/
-    └── my-agent.md         # frontmatter inline
+├── agents/local/
+│   └── my-agent.md         # frontmatter inline
+└── commands/local/
+    └── ns/
+        └── my-command.md   # frontmatter inline  ->  /ns:my-command
 ```
 
 Unlike `default`/content-repo/`workspace` skills, a `local` file's frontmatter lives directly in the file (the way Claude Code's own Skill/Agent authoring tools write them) — there's no `metadata.yml` and no per-tool rendering step. harness-ai discovers every `SKILL.md`/`<key>.md` under `.harness-ai/skills/local/`/`.harness-ai/agents/local/` on each run and symlinks its whole skill directory (or the agent file) into every active tool's directory, `.agents/skills/<key>` included — `local` renders through the exact same canonical-store-plus-symlink path every other source uses, with no tool-specific exception. It's the one source harness-ai **never deletes or rewrites at its canonical location** — only a dangling tool-dir symlink whose local file disappeared gets cleaned up; the authored file itself is always yours.

@@ -11,7 +11,8 @@ A scaffolded **workspace** (not this repo) additionally gets a canonical store f
 ├── config.yaml              # workspace config (tracked)
 ├── lock, manifest.json      # harness-ai's own run state (gitignored)
 ├── skills/<source>/<key>/   # one <profile>.SKILL.md per active tool profile + references/ (local: just SKILL.md + references/, no profiles)
-└── agents/<source>/<key>/   # one <profile>.md per active tool profile (local: flat <key>.md, no per-key subdir)
+├── agents/<source>/<key>/   # one <profile>.md per active tool profile (local: flat <key>.md, no per-key subdir)
+└── commands/<source>/<key>/ # one <profile>.md per active tool profile (local: flat <key>.md); <key> keeps its namespace dirs
 ```
 
 `.claude/skills/<key>`, `.opencode/skills/<key>`, and `.agents/skills/<key>` (and the agent equivalents) are symlinks into that store — see README's ["Sources and the canonical store"](README.md#sources-and-the-canonical-store). `local` content (hand-authored directly at `.harness-ai/skills/local/`/`.harness-ai/agents/local/`) uses the same canonical-store-plus-symlink shape as every other source, just with one file per key instead of one per tool profile. Before any of the above, harness-ai checks whether the tool-dir slot already holds real, unaccounted-for content — see ["Foreign content is never overwritten"](README.md#foreign-content-is-never-overwritten).
@@ -169,11 +170,31 @@ An optional `agents:` block (name + description only, same as agents above) can 
 No registration step: drop the file in `local`'s canonical store and every tool directory (`.agents` included) symlinks to it.
 
 ```
-.harness-ai/skills/local/my-project-skill/SKILL.md   # frontmatter inline — name/description in the file
+.harness-ai/skills/local/my-project-skill/SKILL.md    # frontmatter inline: name/description in the file
 .harness-ai/agents/local/my-project-agent.md          # frontmatter inline
+.harness-ai/commands/local/ns/my-command.md           # frontmatter inline, invoked as /ns:my-command
 ```
 
 The next `harnessai install`/`sync` discovers it (any file under those two directories) and symlinks it into every active tool's directory. See [README's "Local skills"](README.md#local-skills) for the full model, the migration step from the pre-1.0 `.agents/skills/` layout, and the collision rule with `default`/content-repo keys of the same name.
+
+### Adding a command
+
+Commands run through the identical source pipeline; the only thing to know is that **the key is the
+path**, namespace directories included, because that is how the tool addresses them:
+
+| key | content file | invoked as |
+| --- | --- | --- |
+| `deep-task-analysis` | `commands/deep-task-analysis.md` | `/deep-task-analysis` |
+| `dev/deep-task-analysis` | `commands/dev/deep-task-analysis.md` | `/dev:deep-task-analysis` |
+
+For `default`/a content repo, register the key in `commands/metadata.yml` (per-tool frontmatter:
+`description`, `argument-hint`, `allowed-tools`, `model`) and put the body, with no frontmatter, in
+`commands/<key>.md`. For `local`, just drop a frontmatter'd file at
+`.harness-ai/commands/local/<key>.md`.
+
+Commands only reach tool profiles that declare a `commands` block in `paths.yml` (`claude` and the
+neutral `agents` profile today; `opencode` is intentionally not wired until its path convention is
+confirmed). See [README's "Commands"](README.md#commands).
 
 ### Taxonomy
 

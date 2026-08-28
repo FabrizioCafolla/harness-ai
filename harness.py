@@ -84,6 +84,7 @@ def _update_agents_md(
     content_repo_paths: list[pathlib.Path],
     skill_keys: list[str],
     agent_keys: list[str],
+    command_keys: list[str] | None = None,
     caveman_default: bool = False,
 ) -> None:
     """Inject or update the harness-ai managed block in AGENTS.md."""
@@ -119,6 +120,11 @@ def _update_agents_md(
     if agent_keys:
         agent_list = "\n".join(f"- `{k}`" for k in agent_keys)
         parts.append(f"### Installed agents\n\n{agent_list}")
+
+    if command_keys:
+        # Shown as the user types them: `deploy/rollback` is invoked `/deploy:rollback`.
+        command_list = "\n".join(f"- `/{k.replace('/', ':')}`" for k in command_keys)
+        parts.append(f"### Installed commands\n\n{command_list}")
 
     block = start + "\n\n" + "\n\n".join(parts) + "\n\n" + end
 
@@ -264,9 +270,10 @@ def _cleanup_stale_for_tool(
     new_sources: dict,
     tool_paths: dict,
 ) -> dict[tuple[str, str], int]:
-    """Remove one tool's skill/agent symlinks (and, for default/repo/workspace
-    sources, their canonical store entries) that were managed in a previous
-    run but are no longer current, keyed by (source, kind) — see design.md D7/D9/D6a.
+    """Remove one tool's skill/agent/command symlinks (and, for default/repo/
+    workspace sources, their canonical store entries) that were managed in a
+    previous run but are no longer current, keyed by (source, kind): see
+    design.md D7/D9/D6a.
 
     Must be called *between* the `default`/`contentRepos`/`workspace` render
     loop and the `local`-linking pass, with `new_sources` containing that
@@ -321,6 +328,10 @@ def _cleanup_stale_for_tool(
     skills_base = base / tool_paths["skills"]["dir"]
     agents_dir = base / tool_paths["agents"]["dir"]
     agent_suffix = tool_paths["agents"]["suffix"]
+    # A tool profile without a `commands` block simply has no commands to clean.
+    commands_cfg = tool_paths.get("commands")
+    commands_dir = base / commands_cfg["dir"] if commands_cfg else None
+    command_suffix = commands_cfg["suffix"] if commands_cfg else ""
 
     # Keys claimed by any *non-local* source so far this run (design.md
     # D6a) — a key can migrate from one source to another on a collision
@@ -331,18 +342,22 @@ def _cleanup_stale_for_tool(
     # `new_sources` — see docstring.
     all_current_skills: set[str] = set()
     all_current_agents: set[str] = set()
+    all_current_commands: set[str] = set()
     for src_name, src_data in new_sources.items():
         if src_name == "local":
             continue
         all_current_skills.update(src_data.get("skills", []))
         all_current_agents.update(src_data.get("agents", []))
+        all_current_commands.update(src_data.get("commands", []))
 
     for source_name, prev in old_sources.items():
-        current = new_sources.get(source_name, {"skills": [], "agents": []})
+        current = new_sources.get(source_name, {"skills": [], "agents": [], "commands": []})
         stale_skills = set(prev.get("skills", [])) - set(current.get("skills", []))
         stale_agents = set(prev.get("agents", [])) - set(current.get("agents", []))
+        stale_commands = set(prev.get("commands", [])) - set(current.get("commands", []))
         removed_skills = 0
         removed_agents = 0
+        removed_commands = 0
 
         for key in sorted(stale_skills):
             if key in all_current_skills:
@@ -378,10 +393,32 @@ def _cleanup_stale_for_tool(
                 if canonical_dir.exists():
                     shutil.rmtree(canonical_dir)
 
+        for key in sorted(stale_commands):
+            if key in all_current_commands:
+                print(f"  [cleanup] {source_name} command '{key}' migrated to another source, tool-dir path left alone")
+            elif commands_dir is not None:
+                stale_file = commands_dir / f"{key}{command_suffix}"
+                if stale_file.is_symlink() or stale_file.exists():
+                    stale_file.unlink()
+                    removed_commands += 1
+                    print(f"  [cleanup] removed stale {source_name} command: {stale_file.relative_to(ws)}")
+                # A namespace directory left empty by that removal is noise in
+                # the tool's command list, so prune it back up to commands_dir.
+                parent = stale_file.parent
+                while parent != commands_dir and parent.is_dir() and not any(parent.iterdir()):
+                    parent.rmdir()
+                    parent = parent.parent
+            if source_name != "local":
+                canonical_dir = ws / _HARNESS_DIR / "commands" / source_name / key
+                if canonical_dir.exists():
+                    shutil.rmtree(canonical_dir)
+
         if removed_skills:
             removed_counts[(source_name, "skill")] = removed_skills
         if removed_agents:
             removed_counts[(source_name, "agent")] = removed_agents
+        if removed_commands:
+            removed_counts[(source_name, "cmd")] = removed_commands
 
     return removed_counts
 
@@ -390,13 +427,17 @@ def _load_content(
     feature_dir: pathlib.Path,
     install_defaults: bool,
     content_repos: list[tuple[str, pathlib.Path]],
-) -> tuple[dict, dict, dict, dict, dict, list[str], dict[str, pathlib.Path]]:
-    """Merge `paths.yml` + agents/skills `metadata.yml` across `default` and N
-    named content repos, in that order (later sources win on key collision).
+) -> tuple[dict, dict, dict, dict, dict, dict, dict, list[str], dict[str, pathlib.Path]]:
+    """Merge `paths.yml` + agents/skills/commands `metadata.yml` across `default`
+    and N named content repos, in that order (later sources win on key collision).
 
-    Returns (paths_cfg, agents_by_key, skills_by_key, agents_defaults,
-    skills_defaults, source_order, source_roots). agents_by_key/skills_by_key
-    map key -> {"source": name, "entry": {...}}.
+    Returns (paths_cfg, agents_by_key, skills_by_key, commands_by_key,
+    agents_defaults, skills_defaults, commands_defaults, source_order,
+    source_roots). The *_by_key maps go key -> {"source": name, "entry": {...}}.
+
+    Command keys carry their namespace: `deploy/rollback` is the entry for
+    `commands/deploy/rollback.md`, rendered to `.claude/commands/deploy/rollback.md`
+    and invoked as `/deploy:rollback`: the same addressing the tool itself uses.
     """
 
     def _load_yaml(p: pathlib.Path) -> dict:
@@ -405,13 +446,15 @@ def _load_content(
     paths_cfg: dict = {}
     agents_by_key: dict[str, dict] = {}
     skills_by_key: dict[str, dict] = {}
+    commands_by_key: dict[str, dict] = {}
     agents_defaults: dict = {}
     skills_defaults: dict = {}
+    commands_defaults: dict = {}
     source_order: list[str] = []
     source_roots: dict[str, pathlib.Path] = {}
 
     def _merge_source(name: str, root: pathlib.Path, is_default_source: bool) -> None:
-        nonlocal agents_defaults, skills_defaults
+        nonlocal agents_defaults, skills_defaults, commands_defaults
         source_order.append(name)
         source_roots[name] = root
 
@@ -431,6 +474,13 @@ def _load_content(
         for key, val in (skills_meta.get("skills") or {}).items():
             skills_by_key[key] = {"source": name, "entry": val}
 
+        commands_meta = _load_yaml(root / "commands" / "metadata.yml")
+        if is_default_source:
+            commands_defaults = commands_meta.get("default") or {}
+        for key, val in (commands_meta.get("commands") or {}).items():
+            key = _normalize_command_key(key, f"{name}/commands/metadata.yml")
+            commands_by_key[key] = {"source": name, "entry": val}
+
     if install_defaults:
         _merge_source("default", feature_dir / "content", is_default_source=True)
 
@@ -438,7 +488,17 @@ def _load_content(
         if path and path.exists():
             _merge_source(name, path, is_default_source=False)
 
-    return paths_cfg, agents_by_key, skills_by_key, agents_defaults, skills_defaults, source_order, source_roots
+    return (
+        paths_cfg,
+        agents_by_key,
+        skills_by_key,
+        commands_by_key,
+        agents_defaults,
+        skills_defaults,
+        commands_defaults,
+        source_order,
+        source_roots,
+    )
 
 
 def _tool_meta_for(entry: dict, tool: str, defaults: dict) -> dict | None:
@@ -460,15 +520,35 @@ def _tool_meta_for(entry: dict, tool: str, defaults: dict) -> dict | None:
     return None
 
 
-def _scan_local_source(ws: pathlib.Path) -> tuple[dict[str, dict], dict[str, dict]]:
+def _normalize_command_key(key: str, origin: str) -> str:
+    """Commands are addressed by path, so their key is a relative path without
+    `.md` (`deploy/rollback` -> `/deploy:rollback`). Reject anything that would
+    escape the commands directory or collide with the tool's own layout."""
+    normalized = key.strip().strip("/")
+    if normalized.endswith(".md"):
+        normalized = normalized[: -len(".md")]
+    parts = pathlib.PurePosixPath(normalized).parts
+    if not normalized or pathlib.PurePosixPath(normalized).is_absolute() or ".." in parts or "" in parts:
+        sys.exit(f"invalid command key '{key}' in {origin}: use a relative path like 'namespace/name'")
+    return "/".join(parts)
+
+
+def _scan_local_source(ws: pathlib.Path) -> tuple[dict[str, dict], dict[str, dict], dict[str, dict]]:
     """Discover `local` skills/agents: files authored directly under
-    `.harness-ai/skills/local/<key>/SKILL.md` and `.harness-ai/agents/local/<key>.md`
+    `.harness-ai/skills/local/<key>/SKILL.md`, `.harness-ai/agents/local/<key>.md`
+    and `.harness-ai/commands/local/<key>.md`
     — see design.md D1/D2. This is `local`'s own canonical store, never a
     render target for any other source, so no self-reference guard is needed
     here (unlike the old `.agents/skills`/`.agents/agents` location, which
-    used to double as a render target too)."""
+    used to double as a render target too).
+
+    Commands are scanned recursively: their key keeps the namespace directories
+    (`deploy/rollback.md` -> key `deploy/rollback`), matching how the tool
+    addresses them.
+    """
     skills: dict[str, dict] = {}
     agents: dict[str, dict] = {}
+    commands: dict[str, dict] = {}
 
     skills_dir = ws / _HARNESS_DIR / "skills" / "local"
     if skills_dir.is_dir():
@@ -485,7 +565,14 @@ def _scan_local_source(ws: pathlib.Path) -> tuple[dict[str, dict], dict[str, dic
                 meta, _ = _parse_frontmatter(entry.read_text())
                 agents[entry.stem] = meta
 
-    return skills, agents
+    commands_dir = ws / _HARNESS_DIR / "commands" / "local"
+    if commands_dir.is_dir():
+        for entry in sorted(commands_dir.rglob("*.md")):
+            if entry.is_file():
+                meta, _ = _parse_frontmatter(entry.read_text())
+                commands[entry.relative_to(commands_dir).with_suffix("").as_posix()] = meta
+
+    return skills, agents, commands
 
 
 def _category_key_match(key: str, category: str | None, subcategory: str | None, categories: set[str], keys: set[str]) -> bool:
@@ -724,6 +811,49 @@ def _render_agent(
     return result != "foreign"
 
 
+def _render_command(
+    ws: pathlib.Path,
+    tool: str,
+    tool_paths: dict,
+    source_name: str,
+    key: str,
+    meta: dict,
+    body: str,
+) -> bool:
+    """Returns False if the command's tool-dir slot was blocked by foreign
+    content (design.md D5/D6): the command is not counted as linked.
+
+    `key` may carry namespace directories (`deploy/rollback`); both the
+    canonical store and the tool dir mirror them."""
+    canonical_dir = ws / _HARNESS_DIR / "commands" / source_name / key
+    canonical_file = canonical_dir / f"{tool}.md"
+    _write_with_frontmatter(canonical_file, meta, body)
+
+    base = ws / tool_paths["base_dir"]
+    suffix = tool_paths["commands"]["suffix"]
+    dest = base / tool_paths["commands"]["dir"] / f"{key}{suffix}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    result = _make_symlink(dest, canonical_file)
+    if result == "foreign":
+        print(f"  │  [foreign] command '{key}' ({tool}, source: {source_name}): real content already at {dest.relative_to(ws)}, left untouched")
+    return result != "foreign"
+
+
+def _link_local_command(ws: pathlib.Path, tool_paths: dict, tool: str, key: str) -> bool:
+    """Returns False if blocked by foreign content (design.md D5/D6).
+
+    Unlike a local *skill* (a whole-directory symlink), a local command is a
+    single file, so it links exactly like a local agent."""
+    base = ws / tool_paths["base_dir"]
+    suffix = tool_paths["commands"]["suffix"]
+    dest = base / tool_paths["commands"]["dir"] / f"{key}{suffix}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    result = _make_symlink(dest, ws / _HARNESS_DIR / "commands" / "local" / f"{key}.md")
+    if result == "foreign":
+        print(f"  │  [foreign] command '{key}' ({tool}, source: local): real content already at {dest.relative_to(ws)}, left untouched")
+    return result != "foreign"
+
+
 def _link_local_skill(ws: pathlib.Path, tool_paths: dict, tool: str, key: str) -> bool:
     """Returns False if blocked by foreign content (design.md D5/D6)."""
     base = ws / tool_paths["base_dir"]
@@ -791,9 +921,17 @@ def scaffold(
         print(f"\n harness-ai  no changes detected skipping (workspace: {ws})\n")
         return
 
-    paths_cfg, agents_by_key, skills_by_key, agents_defaults, skills_defaults, source_order, source_roots = _load_content(
-        feature_dir, install_defaults, repo_paths
-    )
+    (
+        paths_cfg,
+        agents_by_key,
+        skills_by_key,
+        commands_by_key,
+        agents_defaults,
+        skills_defaults,
+        commands_defaults,
+        source_order,
+        source_roots,
+    ) = _load_content(feature_dir, install_defaults, repo_paths)
     filtered_skills_by_key = _apply_skill_filter(
         skills_by_key,
         skills_include_categories or [],
@@ -801,7 +939,7 @@ def scaffold(
         skills_exclude_categories or [],
         skills_exclude_keys or [],
     )
-    local_skills, local_agents = _scan_local_source(ws)
+    local_skills, local_agents, local_commands = _scan_local_source(ws)
     exclude_key_set = set(skills_exclude_keys or [])
     included_local_skill_keys = sorted(k for k in local_skills if k not in exclude_key_set)
 
@@ -916,7 +1054,33 @@ def scaffold(
                 else:
                     _bump(tool, source_name, "agent", "foreign")
 
-            new_manifest[tool][source_name] = {"skills": rendered_skills, "agents": rendered_agents}
+            rendered_commands: list[str] = []
+            if "commands" in tool_paths:
+                for key in sorted(k for k, info in commands_by_key.items() if info["source"] == source_name):
+                    entry = commands_by_key[key]["entry"]
+                    if key in local_commands:
+                        print(f"  │  [collision] command '{key}' claimed by local, skipping render from '{source_name}'")
+                        _bump(tool, source_name, "cmd", "skipped")
+                        continue
+                    meta = _tool_meta_for(entry, tool, commands_defaults.get(tool, {}) or {})
+                    if meta is None:
+                        continue
+                    _bump(tool, source_name, "cmd", "seen")
+                    content_file = source_roots[source_name] / "commands" / f"{key}.md"
+                    if not content_file.exists():
+                        print(f"  │  [WARN] missing content for command '{key}' (source: {source_name})")
+                        continue
+                    if _render_command(ws, tool, tool_paths, source_name, key, meta, content_file.read_text()):
+                        rendered_commands.append(key)
+                        _bump(tool, source_name, "cmd", "linked")
+                    else:
+                        _bump(tool, source_name, "cmd", "foreign")
+
+            new_manifest[tool][source_name] = {
+                "skills": rendered_skills,
+                "agents": rendered_agents,
+                "commands": rendered_commands,
+            }
             filtered_out = skills_filtered_out_by_source.get(source_name, 0)
             if filtered_out:
                 _bump_by(tool, source_name, "skill", "skipped", filtered_out)
@@ -931,7 +1095,14 @@ def scaffold(
         # still-valid local key from being misdiagnosed as stale merely
         # because the linking pass itself hasn't run yet — found via
         # real-workspace testing (design.md D6a refinement).
-        cleanup_preview = {**new_manifest[tool], "local": {"skills": included_local_skill_keys, "agents": sorted(local_agents)}}
+        cleanup_preview = {
+            **new_manifest[tool],
+            "local": {
+                "skills": included_local_skill_keys,
+                "agents": sorted(local_agents),
+                "commands": sorted(local_commands),
+            },
+        }
         for (source_name, kind), cnt in _cleanup_stale_for_tool(ws, tool, old_manifest.get(tool, {}), cleanup_preview, tool_paths).items():
             removed_counts[(tool, source_name, kind)] = cnt
 
@@ -956,7 +1127,20 @@ def scaffold(
                 _bump(tool, "local", "agent", "linked")
             else:
                 _bump(tool, "local", "agent", "foreign")
-        new_manifest[tool]["local"] = {"skills": linked_local_skill_keys, "agents": linked_local_agent_keys}
+        linked_local_command_keys: list[str] = []
+        if "commands" in tool_paths:
+            for key in sorted(local_commands):
+                _bump(tool, "local", "cmd", "seen")
+                if _link_local_command(ws, tool_paths, tool, key):
+                    linked_local_command_keys.append(key)
+                    _bump(tool, "local", "cmd", "linked")
+                else:
+                    _bump(tool, "local", "cmd", "foreign")
+        new_manifest[tool]["local"] = {
+            "skills": linked_local_skill_keys,
+            "agents": linked_local_agent_keys,
+            "commands": linked_local_command_keys,
+        }
 
         # --- Unmanaged tool-dir entries (design.md D6, foreign-entry-safety) ---
         # Independent of any collision above: a directory entry no known
@@ -964,9 +1148,11 @@ def scaffold(
         # never silently invisible even when nothing tried to overwrite it.
         known_skill_keys: set[str] = set()
         known_agent_keys: set[str] = set()
+        known_command_keys: set[str] = set()
         for src_data in new_manifest[tool].values():
             known_skill_keys.update(src_data.get("skills", []))
             known_agent_keys.update(src_data.get("agents", []))
+            known_command_keys.update(src_data.get("commands", []))
 
         skills_base = base / tool_paths["skills"]["dir"]
         if skills_base.is_dir():
@@ -982,9 +1168,25 @@ def scaffold(
                 if stem not in known_agent_keys:
                     unmanaged_entries.append(entry.relative_to(ws))
 
+        commands_cfg = tool_paths.get("commands")
+        if commands_cfg:
+            # Commands nest, so the scan walks the tree and compares the same
+            # namespaced key the manifest stores, not just the top-level name.
+            commands_scan_dir = base / commands_cfg["dir"]
+            command_suffix = commands_cfg["suffix"]
+            if commands_scan_dir.is_dir():
+                for entry in sorted(commands_scan_dir.rglob("*")):
+                    if entry.is_dir():
+                        continue
+                    rel = entry.relative_to(commands_scan_dir).as_posix()
+                    key = rel[: -len(command_suffix)] if command_suffix and rel.endswith(command_suffix) else rel
+                    if key not in known_command_keys:
+                        unmanaged_entries.append(entry.relative_to(ws))
+
         skill_count = sum(len(v["skills"]) for v in new_manifest[tool].values())
         agent_count = sum(len(v["agents"]) for v in new_manifest[tool].values())
-        print(f"  │  skills ({skill_count})  agents ({agent_count})")
+        command_count = sum(len(v.get("commands", [])) for v in new_manifest[tool].values())
+        print(f"  │  skills ({skill_count})  agents ({agent_count})  commands ({command_count})")
 
         # --- Settings files ---
         if create_file_setting:
@@ -1076,8 +1278,11 @@ def scaffold(
 
     all_skill_keys = sorted(set(filtered_skills_by_key) | set(included_local_skill_keys))
     all_agent_keys = sorted(set(agents_by_key) | set(local_agents))
+    all_command_keys = sorted(set(commands_by_key) | set(local_commands))
     repo_dirs_only = [path for _, path in repo_paths]
-    _update_agents_md(ws, feature_dir, repo_dirs_only, all_skill_keys, all_agent_keys, behavior_caveman)
+    _update_agents_md(
+        ws, feature_dir, repo_dirs_only, all_skill_keys, all_agent_keys, all_command_keys, behavior_caveman
+    )
 
     # --- Sync summary table (design.md D7, D6/foreign-entry-safety for the
     # `foreign` column) --- `kind` (skill/agent) is its own column: the

@@ -11,7 +11,7 @@ check:
     bash -n install.sh
     bash -n tests/e2e/run.sh
     python3 -c "import ast; ast.parse(open('harness.py').read())"
-    uv run --with pyyaml python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in ['content/paths.yml', 'content/skills/metadata.yml', 'content/agents/metadata.yml', 'config/config.default.yaml']]"
+    uv run --with pyyaml python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in ['content/paths.yml', 'content/skills/metadata.yml', 'content/agents/metadata.yml', 'content/commands/metadata.yml', 'config/config.default.yaml']]"
     @echo "check: OK"
 
 # Full local suite, one command. Each recipe runs as its own `just` invocation
@@ -31,6 +31,7 @@ test-all: check
     just test-local-source-migration-safety
     just test-category-filter
     just test-workspace-source
+    just test-commands
     just test-foreign-entry
     just test-e2e
     just clean
@@ -381,6 +382,69 @@ test-category-filter: clean
 # D1-D4): repo-shaped, no config entry. Proves the full precedence chain —
 # workspace overrides default, but a real `local` (.harness-ai/skills/local/)
 # entry still overrides workspace (D2 unchanged).
+# Commands ship, render and namespace like skills/agents, and `local` wins the
+# same way. The namespaced key (`ns/name`) is the whole point: it is what the
+# tool uses to address the command, so it has to survive render + cleanup.
+test-commands: clean
+    @echo "==> First run: bundled command from the default source..."
+    {{uv}} \
+        --workspace {{workspace}} \
+        --tools claude \
+        --create-file-mcp false \
+        --create-file-hooks false \
+        --create-file-setting false \
+        --update-gitignore false \
+        --install-defaults true \
+        | tee {{workspace}}-run1.log
+    test -L {{workspace}}/.claude/commands/dev/deep-task-analysis.md \
+        && echo "  [OK] namespaced command rendered as a symlink under .claude/commands/dev/" \
+        || { echo "  [FAIL] .claude/commands/dev/deep-task-analysis.md is not a symlink"; exit 1; }
+    readlink {{workspace}}/.claude/commands/dev/deep-task-analysis.md \
+        | grep -q '.harness-ai/commands/default/dev/deep-task-analysis/claude.md' \
+        && echo "  [OK] symlink points into the canonical store" \
+        || { echo "  [FAIL] symlink target unexpected"; exit 1; }
+    grep -q 'argument-hint' {{workspace}}/.harness-ai/commands/default/dev/deep-task-analysis/claude.md \
+        && echo "  [OK] frontmatter rendered from metadata.yml" \
+        || { echo "  [FAIL] rendered command carries no argument-hint"; exit 1; }
+    @echo "==> Local override of the same key must win..."
+    mkdir -p {{workspace}}/.harness-ai/commands/local/dev
+    printf -- '---\nname: deep-task-analysis\ndescription: Local override.\n---\n\nLocal body.\n' \
+        > {{workspace}}/.harness-ai/commands/local/dev/deep-task-analysis.md
+    rm -f {{workspace}}/.harness-ai/lock
+    {{uv}} \
+        --workspace {{workspace}} \
+        --tools claude \
+        --create-file-mcp false \
+        --create-file-hooks false \
+        --create-file-setting false \
+        --update-gitignore false \
+        --install-defaults true \
+        | tee {{workspace}}-run2.log
+    grep -q "command 'dev/deep-task-analysis' claimed by local" {{workspace}}-run2.log \
+        && echo "  [OK] default render skipped in favour of local" \
+        || { echo "  [FAIL] local did not claim the key"; exit 1; }
+    readlink {{workspace}}/.claude/commands/dev/deep-task-analysis.md \
+        | grep -q '.harness-ai/commands/local/dev/deep-task-analysis.md' \
+        && echo "  [OK] symlink now points at the local source" \
+        || { echo "  [FAIL] symlink still points at the default source"; exit 1; }
+    @echo "==> Deleting the local command: cleanup must drop the dangling link and the empty namespace dir..."
+    rm -rf {{workspace}}/.harness-ai/commands/local
+    rm -f {{workspace}}/.harness-ai/lock
+    {{uv}} \
+        --workspace {{workspace}} \
+        --tools claude \
+        --create-file-mcp false \
+        --create-file-hooks false \
+        --create-file-setting false \
+        --update-gitignore false \
+        --install-defaults true \
+        | tee {{workspace}}-run3.log
+    readlink {{workspace}}/.claude/commands/dev/deep-task-analysis.md \
+        | grep -q '.harness-ai/commands/default/dev/deep-task-analysis/claude.md' \
+        && echo "  [OK] key fell back to the default source" \
+        || { echo "  [FAIL] key did not fall back to default after local was removed"; exit 1; }
+    @echo "test-commands: OK"
+
 test-workspace-source: clean
     @echo "==> Seeding .harness-ai/local/ overriding the bundled 'agent-creator' skill..."
     mkdir -p {{workspace}}/.harness-ai/local/skills/agent-creator {{workspace}}/.harness-ai/local/agents

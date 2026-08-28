@@ -18,6 +18,9 @@ agents:
   skills:
     dir: skills
     filename: SKILL.md
+  commands:
+    dir: commands
+    suffix: .md
 
 claude:
   base_dir: .claude
@@ -27,6 +30,11 @@ claude:
   skills:
     dir: skills
     filename: SKILL.md
+  # Command keys keep their namespace directories: `deploy/rollback` renders to
+  # .claude/commands/deploy/rollback.md and is invoked as `/deploy:rollback`.
+  commands:
+    dir: commands
+    suffix: .md
   extra_files:
     settings:
       - source: config/claude/settings.json

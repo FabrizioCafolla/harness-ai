@@ -1,10 +1,12 @@
 {
   "id": "harness-ai",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "name": "Harness AI",
-  "description": "Scaffolds AI agent and skill assets (Claude Code, OpenCode) into the workspace. All configuration — tools, install toggles, content repos — lives in the workspace's .harness-ai/config.yaml, the single source of truth; this feature has no options. Merges content from bundled defaults, N named contentRepos, an auto-detected workspace-local .harness-ai/local/ source, and the hand-authored .harness-ai/skills/local/ and .harness-ai/agents/local/ convention, and never overwrites real content it doesn't recognize. Provisions at container create via a config-driven CLI (harnessai) and re-syncs on every start when content has changed.",
+  "description": "Scaffolds AI agent, skill and command assets (Claude Code, OpenCode) into the workspace. All configuration \u2014 tools, install toggles, content repos \u2014 lives in the workspace's .harness-ai/config.yaml, the single source of truth; this feature has no options. Merges content from bundled defaults, N named contentRepos, an auto-detected workspace-local .harness-ai/local/ source, and the hand-authored .harness-ai/skills/local/, .harness-ai/agents/local/ and .harness-ai/commands/local/ convention, and never overwrites real content it doesn't recognize. Provisions at container create via a config-driven CLI (harnessai) and re-syncs on every start when content has changed.",
   "documentationURL": "https://containers.dev/features",
-  "installsAfter": ["ghcr.io/devcontainers/features/python:1"],
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/python:1"
+  ],
   "postCreateCommand": "harnessai install",
   "postStartCommand": "harnessai sync"
 }
