@@ -306,6 +306,33 @@ Delete `.harness-ai/local/` and re-sync to remove the source cleanly; nothing sp
 
 ---
 
+## Skill paths
+
+Take a single skill straight from a directory inside someone else's repo, without vendoring it or adding the whole repo as a content source:
+
+```yaml
+skillPaths:
+  - url: https://github.com/mattpocock/skills/tree/main/skills/productivity/grill-me
+```
+
+The ref and the sub-path are read out of the GitHub URL, so that is usually the whole entry. Three optional fields cover the rest:
+
+| field | when you need it |
+| --- | --- |
+| `name` | install the skill under a different key than the directory name |
+| `ref` | pin a branch or tag other than the one in the URL (an explicit `ref` always wins) |
+| `path` | point inside a remote whose URL has no `/tree/` part (a self-hosted git host, a `file://` checkout) |
+
+**One skill or many.** A path holding a `SKILL.md` is a single skill. A path that doesn't is treated as a folder of skills, and every immediate sub-directory holding a `SKILL.md` is installed under its own name.
+
+**The whole directory travels.** Examples, `scripts/`, `agents/`, `references/`: whatever the skill ships beside `SKILL.md` comes with it, because a skill whose instructions point at its own files is broken without them.
+
+Frontmatter is read from the file itself (third-party skills carry it inline, unlike a content repo's `metadata.yml`) and passed through verbatim, extra keys included. Nothing of ours is stamped on top: harness-ai's bundled `license`/`author` defaults are deliberately not applied to a skill someone else wrote.
+
+**Precedence.** `skillPaths` sits above the bundled defaults and below `contentRepos`: a repo you curate always outranks a skill pulled from elsewhere, and `local` still wins over everything. Fetching uses a sparse checkout of just that sub-path, and `sync`'s fast path tracks each entry's remote SHA with `git ls-remote`, so an upstream change is picked up without cloning to find out.
+
+---
+
 ## Commands
 
 Commands are slash commands (`/deploy:rollback`) and ship through the same pipeline as skills and

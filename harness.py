@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""Harness AI assembles AI agent/skill assets with tool-specific frontmatter into a workspace.
+"""Assembles agent, skill and command assets into a workspace, per tool profile.
 
-Reads content files (pure Markdown, no frontmatter) from content/ and injects
-per-tool metadata from config/agents.yml and config/skills.yml at runtime.
-Supports merging additional content from N named, pre-cloned external
-repositories (`contentRepos`), plus a `local` source authored directly in
-the consuming workspace's own canonical store at `.harness-ai/skills/local/`
-and `.harness-ai/agents/local/`.
+Bodies are plain Markdown; the frontmatter each tool wants is injected at render
+time from the matching `<kind>/metadata.yml`. Sources merge in precedence order,
+later winning: `default` (bundled content/) -> `skillpaths` (single skills
+fetched from a path inside any git repo) -> each configured `contentRepos` entry
+-> `workspace` (.harness-ai/local/) -> `local`, hand-authored in
+.harness-ai/{skills,agents,commands}/local/ with its frontmatter inline.
+
+Everything renders into the workspace's canonical store under .harness-ai/, and
+each tool directory only ever holds symlinks into it. Real content harness-ai
+did not put there is never overwritten.
 """
 import argparse
 import hashlib
@@ -17,6 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 import yaml
 
@@ -33,7 +38,7 @@ _Dumper.add_representer(
 _HARNESS_DIR = ".harness-ai"
 _LOCK_FILE = "lock"
 _MANIFEST_FILE = "manifest.json"
-_RESERVED_SOURCE_NAMES = {"default", "local", "workspace"}
+_RESERVED_SOURCE_NAMES = {"default", "local", "workspace", "skillpaths"}
 
 
 def _write_with_frontmatter(dest: pathlib.Path, meta: dict, body: str) -> None:
@@ -501,6 +506,50 @@ def _load_content(
     )
 
 
+def _stage_skill_paths(entries: list[tuple[str, pathlib.Path]], staging: pathlib.Path) -> pathlib.Path | None:
+    """Adapt fetched third-party skill directories into a content-repo layout.
+
+    A skill published in someone else's repo carries its frontmatter INLINE in
+    SKILL.md (the shape Claude Code's own tooling writes), while a content repo
+    keeps it in metadata.yml with a frontmatter-free body. Rewriting that once,
+    here, lets `skillpaths` reuse the whole existing pipeline (precedence,
+    render, asset carrying, cleanup, manifest, foreign-entry safety) instead of
+    growing a second one beside it.
+
+    The directory is copied whole: subfolders (examples, scripts, agents,
+    references) are part of the skill, not decoration.
+    """
+    if not entries:
+        return None
+
+    skills_root = staging / "skills"
+    meta: dict = {"skills": {}}
+    for key, src in entries:
+        skill_md = src / "SKILL.md"
+        if not skill_md.is_file():
+            print(f"  [WARN] skill path '{key}': no SKILL.md at {src}, skipping")
+            continue
+        frontmatter, body = _parse_frontmatter(skill_md.read_text())
+        if not frontmatter.get("name"):
+            frontmatter["name"] = key
+        if not frontmatter.get("description"):
+            print(f"  [WARN] skill path '{key}': SKILL.md has no description")
+        dest = skills_root / key
+        # An entry with no sub-path resolves to the clone root, so .git is
+        # sitting right there and would otherwise be copied into the canonical
+        # store and symlinked into every tool directory.
+        shutil.copytree(src, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
+        (dest / "SKILL.md").write_text(body, encoding="utf-8")
+        # Same block for both tool profiles; `agents` falls back to name+description.
+        meta["skills"][key] = {"claude": dict(frontmatter), "opencode": dict(frontmatter)}
+
+    if not meta["skills"]:
+        return None
+    skills_root.mkdir(parents=True, exist_ok=True)
+    (skills_root / "metadata.yml").write_text(yaml.dump(meta, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    return staging
+
+
 def _tool_meta_for(entry: dict, tool: str, defaults: dict) -> dict | None:
     """Resolve a skill/agent's rendered frontmatter for one active tool profile.
 
@@ -919,6 +968,8 @@ def scaffold(
     update_gitignore: bool,
     install_defaults: bool,
     content_repos: list[tuple[str, str]],
+    skill_paths: list[tuple[str, str]] | None = None,
+    skill_paths_sha: str | None = None,
     install_wikictl: bool = False,
     behavior_caveman: bool = False,
     skills_include_categories: list[str] | None = None,
@@ -938,6 +989,20 @@ def scaffold(
 
     repo_paths = [(name, pathlib.Path(path)) for name, path in content_repos]
 
+    # `skillPaths` sits between the bundled defaults and the configured content
+    # repos: a repo you curate outranks a skill pulled from someone else's.
+    # Prepending it here is all the precedence wiring it needs, since sources
+    # merge in list order and the later one wins.
+    # Staged outside the workspace: it is an intermediate shape, never content
+    # to keep. What survives the run is the canonical store the render writes.
+    skillpaths_staging = tempfile.mkdtemp(prefix="harness-ai-skillpaths-") if skill_paths else None
+    staged_skill_paths = _stage_skill_paths(
+        [(k, pathlib.Path(v)) for k, v in (skill_paths or [])],
+        pathlib.Path(skillpaths_staging),
+    ) if skillpaths_staging else None
+    if staged_skill_paths:
+        repo_paths.insert(0, ("skillpaths", staged_skill_paths))
+
     # Auto-detected `workspace` source (design.md D2): a `.harness-ai/local/`
     # directory needs no config entry, and — appended last — automatically
     # wins any same-key collision against `default`/`contentRepos` via plain
@@ -947,7 +1012,15 @@ def scaffold(
         repo_paths.append(("workspace", workspace_dir))
 
     # --- Hash check: skip if nothing changed ---
-    digest = _compute_content_hash(feature_dir, [(name, path, None) for name, path in repo_paths])
+    # skillPaths contribute their remote SHA, never the staged directory: the
+    # staging is a temp dir with no git identity, and --check-only has to reach
+    # the same digest from `git ls-remote` alone, without fetching anything.
+    hash_entries: list[tuple[str, pathlib.Path | None, str | None]] = [
+        (name, path, None) for name, path in repo_paths if name != "skillpaths"
+    ]
+    if skill_paths_sha:
+        hash_entries.append(("skillpaths", None, skill_paths_sha))
+    digest = _compute_content_hash(feature_dir, hash_entries)
     if _read_lock(ws) == digest:
         print(f"\n harness-ai  no changes detected skipping (workspace: {ws})\n")
         return
@@ -1040,7 +1113,10 @@ def scaffold(
                     print(f"  │  [collision] skill '{key}' claimed by local — skipping render from '{source_name}'")
                     _bump(tool, source_name, "skill", "skipped")
                     continue
-                meta = _tool_meta_for(entry, tool, skills_defaults.get(tool, {}) or {})
+                # No bundled defaults for skillpaths: stamping our licence and
+                # author onto someone else's skill would be a false claim.
+                entry_defaults = {} if source_name == "skillpaths" else (skills_defaults.get(tool, {}) or {})
+                meta = _tool_meta_for(entry, tool, entry_defaults)
                 if meta is None:
                     continue
                 _bump(tool, source_name, "skill", "seen")
@@ -1052,13 +1128,13 @@ def scaffold(
                     continue
                 body = content_file.read_text()
                 skill_src = content_root / "skills" / key
-                rendered, refs_foreign = _render_skill(ws, tool, tool_paths, source_name, key, meta, body, skill_src)
+                rendered, assets_foreign = _render_skill(ws, tool, tool_paths, source_name, key, meta, body, skill_src)
                 if rendered:
                     rendered_skills.append(key)
                     _bump(tool, source_name, "skill", "linked")
                 else:
                     _bump(tool, source_name, "skill", "foreign")
-                if refs_foreign:
+                if assets_foreign:
                     _bump(tool, source_name, "skill", "foreign")
 
             rendered_agents: list[str] = []
@@ -1336,6 +1412,8 @@ def scaffold(
 
     _write_manifest(ws, new_manifest)
     _write_lock(ws, digest)
+    if skillpaths_staging:
+        shutil.rmtree(skillpaths_staging, ignore_errors=True)
     print(f"  harness-ai complete\n")
 
 
@@ -1371,6 +1449,8 @@ if __name__ == "__main__":
     parser.add_argument("--install-wikictl", default="false", help="Add the gated wikictl MCP server to .mcp.json (true/false)")
     parser.add_argument("--behavior-caveman", default="false", help="Inject a caveman-mode-by-default instruction into AGENTS.md (true/false)")
     parser.add_argument("--content-repos", action="append", default=[], metavar="NAME=PATH", help="Repeatable: a named, already-resolved (cloned or local) content-repo checkout")
+    parser.add_argument("--skill-path", action="append", default=[], metavar="KEY=DIR", help="Repeatable: an already-fetched third-party skill directory (must contain SKILL.md); cli.sh resolves skillPaths entries into these")
+    parser.add_argument("--skill-paths-sha", default="", metavar="SHA", help="Combined remote SHA of every configured skillPaths entry, so the lock digest matches what --check-only computes")
     parser.add_argument("--content-repo-sha", action="append", default=[], metavar="NAME=SHA", help="Repeatable: pre-computed HEAD SHA (from git ls-remote) for a named content repo; used by --check-only to skip a local git call")
     parser.add_argument("--skills-include-categories", default="", help="Comma-separated category/category.subcategory allowlist")
     parser.add_argument("--skills-include-keys", default="", help="Comma-separated explicit skill-key allowlist")
@@ -1392,6 +1472,8 @@ if __name__ == "__main__":
         _workspace_dir = _ws / _HARNESS_DIR / "local"
         if _workspace_dir.is_dir():
             _hash_entries.append(("workspace", _workspace_dir, None))
+        if args.skill_paths_sha:
+            _hash_entries.append(("skillpaths", None, args.skill_paths_sha))
         _digest = _compute_content_hash(_feature_dir, _hash_entries)
         if _read_lock(_ws) == _digest:
             print(f"\n harness-ai  no changes detected, skipping (workspace: {_ws})\n")
@@ -1407,6 +1489,8 @@ if __name__ == "__main__":
         update_gitignore=_flag(args.update_gitignore),
         install_defaults=_flag(args.install_defaults),
         content_repos=_parse_name_value(args.content_repos),
+        skill_paths=_parse_name_value(args.skill_path),
+        skill_paths_sha=args.skill_paths_sha or None,
         install_wikictl=_flag(args.install_wikictl),
         behavior_caveman=_flag(args.behavior_caveman),
         skills_include_categories=_parse_csv(args.skills_include_categories),

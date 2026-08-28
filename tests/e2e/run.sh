@@ -270,6 +270,43 @@ else
 fi
 
 echo ""
+echo "=== skillPaths: fetch a skill from a path inside another repo ==="
+# Driven against a local git repo over file://, so the case exercises the real
+# clone + sparse-checkout + expand path without depending on the network.
+ws=$(fresh_scratch "skill-paths")
+src_repo="${SCRATCH_ROOT}/skill-source"
+rm -rf "${src_repo}"
+mkdir -p "${src_repo}/catalog/alpha" "${src_repo}/catalog/beta/examples"
+printf -- '---\nname: alpha\ndescription: First.\n---\n\nAlpha body.\n' >"${src_repo}/catalog/alpha/SKILL.md"
+printf -- '---\nname: beta\ndescription: Second.\n---\n\nBeta body.\n' >"${src_repo}/catalog/beta/SKILL.md"
+printf 'payload\n' >"${src_repo}/catalog/beta/examples/sample.md"
+git -C "${src_repo}" init -q -b main
+git -C "${src_repo}" -c user.email=t@t -c user.name=t add -A
+git -C "${src_repo}" -c user.email=t@t -c user.name=t commit -qm init
+
+mkdir -p "${ws}/.harness-ai"
+cat >"${ws}/.harness-ai/config.yaml" <<EOF
+version: 1
+tools: [claude]
+install: { rtk: false, headroom: false, wikictl: false, openspec: false }
+skillPaths:
+  - url: file://${src_repo}
+    path: catalog/alpha
+  - name: whole-catalog
+    url: file://${src_repo}
+    path: catalog
+EOF
+bash "${REPO_DIR}/cli.sh" install --local-path "${REPO_DIR}" --workspace "${ws}" >"${ws}.log" 2>&1
+rc=$?
+if [[ ${rc} -ne 0 ]]; then
+    fail "cli.sh install exited ${rc} (see ${ws}.log)"
+else
+    assert_file_exists "${ws}/.claude/skills/alpha/SKILL.md" "single-skill entry resolved from its sub-path"
+    assert_file_exists "${ws}/.claude/skills/beta/SKILL.md" "folder entry expanded into each skill it contains"
+    assert_file_exists "${ws}/.claude/skills/beta/examples/sample.md" "the skill's own subfolder travelled with it"
+fi
+
+echo ""
 echo "=== Results: ${PASS} passed, ${FAIL} failed ==="
 rm -rf "${SCRATCH_ROOT}"
 [[ ${FAIL} -eq 0 ]]

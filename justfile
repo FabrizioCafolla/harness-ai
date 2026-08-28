@@ -1,3 +1,7 @@
+# Local dev entry point for harness-ai: static checks (`just check`), one recipe per
+# scaffold scenario, and the tests/e2e config-resolution suite. `just test-all` runs
+# the lot and is what CI runs on every push.
+
 workspace := "test"
 uv       := "uv run --with pyyaml harness.py"
 
@@ -31,6 +35,7 @@ test-all: check
     just test-local-source-migration-safety
     just test-local-source-migration-out
     just test-skill-assets
+    just test-skill-paths
     just test-category-filter
     just test-workspace-source
     just test-commands
@@ -425,6 +430,81 @@ test-skill-assets: clean
         || { echo "  [FAIL] stale asset still present"; exit 1; }
     rm -rf {{workspace}}-repo {{workspace}}-run1.log
     @echo "test-skill-assets: OK"
+
+# skillPaths: take a skill (or a folder of skills) from a path inside any git
+# repo. Driven through harness.py with already-fetched directories, the same
+# shape cli.sh hands it after the sparse checkout.
+test-skill-paths: clean
+    @echo "==> Two fetched skills: one standalone, one carrying a subfolder..."
+    mkdir -p {{workspace}} {{workspace}}-fetch/solo {{workspace}}-fetch/withassets/examples
+    printf -- '---\nname: solo\ndescription: Standalone skill.\ndisable-model-invocation: true\n---\n\nSolo body.\n' \
+        > {{workspace}}-fetch/solo/SKILL.md
+    printf -- '---\nname: withassets\ndescription: Ships examples.\n---\n\nAssets body.\n' \
+        > {{workspace}}-fetch/withassets/SKILL.md
+    printf 'example payload\n' > {{workspace}}-fetch/withassets/examples/one.md
+    # An entry with no sub-path resolves to the clone root, .git and all.
+    mkdir -p {{workspace}}-fetch/withassets/.git
+    printf 'not a skill asset\n' > {{workspace}}-fetch/withassets/.git/config
+    {{uv}} --workspace {{workspace}} --tools claude --install-defaults true \
+        --skill-path "solo={{workspace}}-fetch/solo" \
+        --skill-path "withassets={{workspace}}-fetch/withassets" \
+        --create-file-mcp false --create-file-hooks false --create-file-setting false \
+        --update-gitignore false | tee {{workspace}}-run1.log
+    test -L {{workspace}}/.claude/skills/solo/SKILL.md \
+        && echo "  [OK] fetched skill linked into the tool dir" \
+        || { echo "  [FAIL] fetched skill not linked"; exit 1; }
+    test -f {{workspace}}/.claude/skills/withassets/examples/one.md \
+        && echo "  [OK] the skill's own subfolder came with it" \
+        || { echo "  [FAIL] subfolder dropped"; exit 1; }
+    test ! -e {{workspace}}/.claude/skills/withassets/.git \
+        && echo "  [OK] .git never travels with a skill" \
+        || { echo "  [FAIL] .git copied into the store and linked into the tool dir"; exit 1; }
+    grep -q 'disable-model-invocation: true' {{workspace}}/.harness-ai/skills/skillpaths/solo/claude.SKILL.md \
+        && echo "  [OK] upstream frontmatter preserved verbatim, extra keys included" \
+        || { echo "  [FAIL] upstream frontmatter keys lost"; exit 1; }
+    grep -q 'license' {{workspace}}/.harness-ai/skills/skillpaths/solo/claude.SKILL.md \
+        && { echo "  [FAIL] our own default licence stamped on a third-party skill"; exit 1; } \
+        || echo "  [OK] no bundled licence/author stamped on third-party content"
+    grep -qE 'skillpaths +skill +2 +2' {{workspace}}-run1.log \
+        && echo "  [OK] sync summary counts the skillpaths source" \
+        || { echo "  [FAIL] skillpaths missing from the sync summary"; exit 1; }
+    @echo "==> A content repo claiming the same key must win over skillPaths..."
+    mkdir -p {{workspace}}-repo/skills/solo
+    printf 'skills:\n  solo:\n    claude:\n      name: solo\n      description: From the content repo.\n' \
+        > {{workspace}}-repo/skills/metadata.yml
+    printf 'REPO-WINS-MARKER\n' > {{workspace}}-repo/skills/solo/SKILL.md
+    rm -f {{workspace}}/.harness-ai/lock
+    {{uv}} --workspace {{workspace}} --tools claude --install-defaults true \
+        --skill-path "solo={{workspace}}-fetch/solo" \
+        --content-repos "mine={{workspace}}-repo" \
+        --create-file-mcp false --create-file-hooks false --create-file-setting false \
+        --update-gitignore false > /dev/null
+    grep -q 'REPO-WINS-MARKER' {{workspace}}/.claude/skills/solo/SKILL.md \
+        && echo "  [OK] content repo outranks skillPaths on the same key" \
+        || { echo "  [FAIL] skillPaths won over the content repo"; exit 1; }
+    @echo "==> Dropping the entry: the skill must be cleaned up..."
+    rm -f {{workspace}}/.harness-ai/lock
+    {{uv}} --workspace {{workspace}} --tools claude --install-defaults true \
+        --create-file-mcp false --create-file-hooks false --create-file-setting false \
+        --update-gitignore false > /dev/null
+    test ! -e {{workspace}}/.claude/skills/withassets \
+        && echo "  [OK] removed skillPaths entry cleaned from the tool dir" \
+        || { echo "  [FAIL] stale skillPaths skill left behind"; exit 1; }
+    @echo "==> The remote SHA must reach the lock, or sync's fast path never sees an upstream change..."
+    rm -rf {{workspace}} {{workspace}}-repo
+    mkdir -p {{workspace}}
+    {{uv}} --workspace {{workspace}} --tools claude --install-defaults true \
+        --skill-path "solo={{workspace}}-fetch/solo" --skill-paths-sha "sha-one" \
+        --create-file-mcp false --create-file-hooks false --create-file-setting false \
+        --update-gitignore false > /dev/null
+    {{uv}} --workspace {{workspace}} --check-only --skill-paths-sha "sha-one" > /dev/null \
+        && echo "  [OK] unchanged remote SHA: fast path reports nothing to do" \
+        || { echo "  [FAIL] digest written by the run does not match check-only's"; exit 1; }
+    {{uv}} --workspace {{workspace}} --check-only --skill-paths-sha "sha-two" > /dev/null \
+        && { echo "  [FAIL] CRITICAL: an upstream change to a skillPaths entry went undetected"; exit 1; } \
+        || echo "  [OK] changed remote SHA: fast path falls through to a full run"
+    rm -rf {{workspace}}-fetch {{workspace}}-run1.log
+    @echo "test-skill-paths: OK"
 
 test-category-filter: clean
     @echo "==> Running scaffold (skills.include.categories=meta, exclude.keys=agent-creator)..."

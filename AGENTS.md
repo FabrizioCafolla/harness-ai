@@ -10,7 +10,7 @@ A scaffolded **workspace** (not this repo) additionally gets a canonical store f
 <workspace>/.harness-ai/
 ├── config.yaml              # workspace config (tracked)
 ├── lock, manifest.json      # harness-ai's own run state (gitignored)
-├── skills/<source>/<key>/   # one <profile>.SKILL.md per active tool profile + references/ (local: just SKILL.md + references/, no profiles)
+├── skills/<source>/<key>/   # one <profile>.SKILL.md per active tool profile, plus everything the source ships beside SKILL.md (references/, scripts/, examples...) (local: just SKILL.md + its assets, no profiles)
 ├── agents/<source>/<key>/   # one <profile>.md per active tool profile (local: flat <key>.md, no per-key subdir)
 └── commands/<source>/<key>/ # one <profile>.md per active tool profile (local: flat <key>.md); <key> keeps its namespace dirs
 ```
@@ -96,13 +96,14 @@ Nothing about harness-ai is vendored into the published feature. `cli.sh` is the
 
 ## Adding an Agent or Skill
 
-Four source kinds, three different workflows (`workspace` reuses the content-repo one):
+Five source kinds, three different workflows (`workspace` reuses the content-repo one, `skillpaths` needs no authoring at all). They merge in this order, later winning: `default` -> `skillpaths` -> each `contentRepos` entry -> `workspace` -> `local`.
 
 | Source | Who edits it | Frontmatter | Steps |
 | --- | --- | --- | --- |
 | `default` | harness-ai's own PRs | in `metadata.yml`, never in the body | see below |
 | a content repo | that repo's own PRs | same shape as `default` — a content repo is structurally identical to `content/` | same steps, against the content repo's own `agents/`/`skills/` tree |
 | `workspace` (a consuming workspace's `.harness-ai/local/`) | that workspace directly | same shape as `default`/a content repo | same steps, against `.harness-ai/local/agents/`/`.harness-ai/local/skills/` — auto-detected, no config entry |
+| `skillpaths` (a directory inside someone else's repo) | nobody here: it is fetched | **inline**, in the source file, passed through verbatim | add a `skillPaths` entry to `.harness-ai/config.yaml`; harness-ai sparse-checks-out the sub-path and adapts it, so there is nothing to register |
 | `local` (a consuming workspace's `.harness-ai/skills/local/`) | that workspace directly | **inline**, in the file itself | drop a frontmatter'd `SKILL.md`/`<key>.md` under `.harness-ai/skills/local/<key>/` or `.harness-ai/agents/local/<key>.md` — nothing to register, harness-ai discovers it automatically on the next scaffold |
 
 The **"no YAML frontmatter in the body"** rule below is scoped to `default`/content-repo content only — `local` is the opposite on purpose (inline frontmatter, no `metadata.yml`), matching how Claude Code's own Skill/Agent authoring tools write files directly into a workspace.

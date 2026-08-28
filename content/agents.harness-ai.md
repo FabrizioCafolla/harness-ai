@@ -1,6 +1,6 @@
 ## harness-ai
 
-[harness-ai](https://github.com/FabrizioCafolla/harness-ai) is a devcontainer feature that assembles AI skills, agents, and hooks into the workspace at container startup. It merges content from the bundled defaults, any number of named content repos, and a workspace-local source, injects per-tool frontmatter, and writes output to tool-specific paths.
+[harness-ai](https://github.com/FabrizioCafolla/harness-ai) is a devcontainer feature that assembles AI skills, agents, commands and hooks into the workspace at container startup. Sources merge in precedence order, later winning: the bundled defaults, single skills pulled from a path inside another repo (`skillPaths`), any number of named content repos, a workspace-local source, and finally `local` content hand-authored in the workspace itself. Per-tool frontmatter is injected on the way out, to tool-specific paths.
 
 **Generated files must never be edited directly.** On the next scaffold run (`harnessai sync` on container start, or `harnessai install`) they are fully regenerated — any manual change is lost. To change a skill or agent: edit the source in the content repo, not the output. Hooks are also harness-managed: customize them via the content repo override.
 
@@ -34,7 +34,11 @@ contentRepos:
   - name: your-private-skills-repo
     url: https://github.com/your-org/your-private-skills-repo
     ref: main
+skillPaths:
+  - url: https://github.com/mattpocock/skills/tree/main/skills/productivity/grill-me
 ```
+
+`skillPaths` takes a skill straight from a directory in someone else's repo: the ref and sub-path come from the URL, and the whole directory travels, subfolders included. Point it at a folder of skills instead of one skill and every sub-directory holding a `SKILL.md` is installed.
 
 The old singular `contentRepo: {url, ref}` still works (sugar for a one-entry `contentRepos` list, name derived from the URL) with a deprecation warning — see [Content repos](https://github.com/FabrizioCafolla/harness-ai#content-repos).
 

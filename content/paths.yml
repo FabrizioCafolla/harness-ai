@@ -1,3 +1,7 @@
+# Where each tool profile expects its assets, and what harness-ai renders for it.
+# One block per profile: `base_dir` plus the skills/agents/commands sub-paths, with
+# optional hooks and extra files. A profile that omits a kind simply never receives it.
+
 opencode:
   base_dir: .opencode
   agents:

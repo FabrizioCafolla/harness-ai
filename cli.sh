@@ -225,17 +225,29 @@ _get_remote_sha() {
     git ls-remote --exit-code "${auth_url}" "refs/heads/${ref}" 2>/dev/null | cut -f1 || echo ""
 }
 
+# Token-bearing form of a clone URL when a token is available: private repos
+# need it, public ones are unaffected. Shared by the content-repo clone and the
+# skillPaths sparse fetch.
+_auth_url() {
+    local url="$1"
+    # Only https URLs get a token spliced in. Rewriting anything else produced
+    # `https://x-access-token:TOKEN@file:///...` for a file:// or ssh remote,
+    # which git simply cannot clone.
+    if [[ "${url}" != https://* ]]; then
+        echo "${url}"
+    elif [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        echo "https://x-access-token:${GITHUB_TOKEN}@${url#https://}"
+    elif command -v gh &>/dev/null && gh auth token &>/dev/null 2>&1; then
+        echo "https://x-access-token:$(gh auth token)@${url#https://}"
+    else
+        echo "${url}"
+    fi
+}
+
 _clone_content_repo() {
     local url="$1" ref="$2" dest="$3"
-    local auth_url="${url}"
-
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        auth_url="https://x-access-token:${GITHUB_TOKEN}@${url#https://}"
-    elif command -v gh &>/dev/null && gh auth token &>/dev/null 2>&1; then
-        local token
-        token=$(gh auth token)
-        auth_url="https://x-access-token:${token}@${url#https://}"
-    fi
+    local auth_url
+    auth_url="$(_auth_url "${url}")"
 
     if ! git clone --quiet --depth 1 \
         --branch "${ref}" "${auth_url}" "${dest}" 2>/dev/null; then
@@ -282,6 +294,103 @@ _build_content_repos_blob_from_flags() {
 }
 
 # Decodes CONTENT_REPOS_BLOB into parallel arrays, name-ordered as configured.
+_decode_skill_paths() {
+    SKILL_PATH_NAMES=(); SKILL_PATH_URLS=(); SKILL_PATH_REFS=(); SKILL_PATH_SUBPATHS=()
+    [[ -z "${CFG_SKILL_PATHS:-}" ]] && return 0
+    local entries=() entry rest
+    mapfile -d $'\x1e' -t entries <<<"${CFG_SKILL_PATHS}"
+    for entry in "${entries[@]}"; do
+        entry="${entry%$'\n'}"
+        [[ -z "${entry}" ]] && continue
+        SKILL_PATH_NAMES+=("${entry%%$'\x1f'*}");  rest="${entry#*$'\x1f'}"
+        SKILL_PATH_URLS+=("${rest%%$'\x1f'*}");    rest="${rest#*$'\x1f'}"
+        SKILL_PATH_REFS+=("${rest%%$'\x1f'*}")
+        SKILL_PATH_SUBPATHS+=("${rest#*$'\x1f'}")
+    done
+}
+
+# Fetches each skillPaths entry with a sparse checkout (only the sub-path, not
+# the whole repo) and expands it into `--skill-path KEY=DIR` args for
+# harness.py. A path holding SKILL.md is one skill; otherwise every immediate
+# sub-directory that holds one becomes its own skill.
+_resolve_skill_paths() {
+    SKILL_PATH_ARGS=(); SKILL_PATH_KEYS=()
+    _decode_skill_paths
+    [[ ${#SKILL_PATH_NAMES[@]} -eq 0 ]] && return 0
+
+    local i name url ref subpath dest root child found
+    for i in "${!SKILL_PATH_NAMES[@]}"; do
+        name="${SKILL_PATH_NAMES[$i]}"; url="${SKILL_PATH_URLS[$i]}"
+        ref="${SKILL_PATH_REFS[$i]}";   subpath="${SKILL_PATH_SUBPATHS[$i]}"
+        # Indexed: two entries can legitimately share a name (and one of them
+        # then loses on the dedupe below), but cloning both into the same
+        # directory made the second fail and blame the network for it.
+        dest="${TEMP_DIR}/skill-path/${i}-${name}"
+        info "Fetching skill path '${name}' (ref: ${ref})..."
+        if ! git clone --quiet --depth 1 --filter=blob:none --sparse \
+            --branch "${ref}" "$(_auth_url "${url}")" "${dest}" 2>/dev/null; then
+            warn "skillPaths '${name}': clone failed (${url}, ref ${ref}), skipping"
+            continue
+        fi
+        if [[ -n "${subpath}" ]] && ! git -C "${dest}" sparse-checkout set --no-cone "${subpath}" 2>/dev/null; then
+            warn "skillPaths '${name}': sub-path '${subpath}' not found in ${url}, skipping"
+            continue
+        fi
+        root="${dest}${subpath:+/${subpath}}"
+        # `found` tracks whether a SKILL.md was there at all, not whether it was
+        # kept: a skill dropped by the dedupe below already reported itself, and
+        # claiming the path holds nothing on top of that is simply false.
+        found=0
+        if [[ -f "${root}/SKILL.md" ]]; then
+            found=1
+            _add_skill_path_arg "${name}" "${root}" || true
+        else
+            for child in "${root}"/*/; do
+                [[ -f "${child}SKILL.md" ]] || continue
+                child="${child%/}"
+                found=1
+                _add_skill_path_arg "$(basename "${child}")" "${child}" || true
+            done
+        fi
+        # Counted per entry: a shared counter stopped warning as soon as any
+        # earlier entry had resolved something.
+        if [[ ${found} -eq 0 ]]; then
+            warn "skillPaths '${name}': no SKILL.md at '${subpath:-repo root}' nor in its sub-directories, skipping"
+        fi
+    done
+}
+
+# Appends one resolved skill, refusing a key a previous entry already claimed:
+# two entries silently resolving to the same name would leave whichever came
+# last, with no sign the other was dropped.
+_add_skill_path_arg() {
+    local key="$1" dir="$2" seen
+    for seen in "${SKILL_PATH_KEYS[@]:-}"; do
+        if [[ "${seen}" == "${key}" ]]; then
+            warn "skillPaths: skill '${key}' resolved more than once, keeping the first"
+            return 1
+        fi
+    done
+    SKILL_PATH_KEYS+=("${key}")
+    SKILL_PATH_ARGS+=(--skill-path "${key}=${dir}")
+}
+
+# One SHA standing for every configured skillPaths entry, resolved with
+# ls-remote so the sync fast path can tell "upstream moved" from "nothing
+# changed" without fetching. Empty when nothing is configured, or when any
+# entry fails to resolve: a partial hash would report "no changes" for a skill
+# it simply could not reach.
+_skill_paths_sha() {
+    [[ ${#SKILL_PATH_NAMES[@]} -eq 0 ]] && { echo ""; return 0; }
+    local i sha out=""
+    for i in "${!SKILL_PATH_NAMES[@]}"; do
+        sha=$(git ls-remote "$(_auth_url "${SKILL_PATH_URLS[$i]}")" "${SKILL_PATH_REFS[$i]}" 2>/dev/null | head -1 | cut -f1)
+        [[ -z "${sha}" ]] && { echo ""; return 0; }
+        out+="${SKILL_PATH_NAMES[$i]}:${SKILL_PATH_SUBPATHS[$i]}:${sha};"
+    done
+    printf '%s' "${out}" | sha256sum | cut -d' ' -f1
+}
+
 _decode_content_repos() {
     CONTENT_REPO_NAMES=()
     CONTENT_REPO_URLS=()
@@ -683,7 +792,7 @@ for key, var in (
 # emitted as one CFG_CONTENT_REPOS delimited blob (record separator \x1e
 # between repos, unit separator \x1f between name/url/ref), decoded in
 # _load_config — same pattern as CFG_CUSTOM_TOOLS.
-RESERVED_SOURCE_NAMES = {"default", "local", "workspace"}
+RESERVED_SOURCE_NAMES = {"default", "local", "workspace", "skillpaths"}
 
 
 def _slugify(url):
@@ -725,6 +834,35 @@ elif (cfg.get("contentRepo") or {}).get("url"):
         "[WARN] .harness-ai/config.yaml: 'contentRepo' (singular) is deprecated, use 'contentRepos' (a list) instead",
         file=sys.stderr,
     )
+
+# skillPaths: point at a directory inside any git repo and take the skill(s)
+# there. Parsed here rather than in bash because a GitHub "tree" URL carries the
+# ref and the sub-path inside it, and splitting that with shell parameter
+# expansion is where this would quietly go wrong.
+skill_paths = []
+for entry in (cfg.get("skillPaths") or []):
+    entry = entry or {}
+    url = entry.get("url")
+    if not url:
+        sys.exit(f"skillPaths entry missing required 'url' field: {entry}")
+    url = url.rstrip("/")
+    ref, subpath = "", ""
+    for marker in ("/tree/", "/blob/"):
+        if marker in url:
+            base, _, tail = url.partition(marker)
+            parts = tail.split("/")
+            url, ref, subpath = base, parts[0], "/".join(parts[1:])
+            break
+    # An explicit field always wins over what the URL happened to encode, and
+    # `path` is the only way to point inside a repo whose URL has no /tree/ part
+    # (a self-hosted remote, a file:// checkout).
+    ref = entry.get("ref") or ref or "main"
+    subpath = (entry.get("path") or subpath or "").strip("/")
+    name = entry.get("name") or (subpath.rsplit("/", 1)[-1] if subpath else _slugify(url))
+    skill_paths.append((name, url, ref, subpath))
+
+if skill_paths:
+    emit("CFG_SKILL_PATHS", "\x1e".join(f"{n}\x1f{u}\x1f{r}\x1f{s}" for n, u, r, s in skill_paths))
 
 if repos:
     blob = "\x1e".join(f"{name}\x1f{url}\x1f{ref}" for name, url, ref in repos)
@@ -787,6 +925,7 @@ _load_config() {
     SKILLS_EXCLUDE_CATEGORIES="${CFG_SKILLS_EXCLUDE_CATEGORIES:-${SKILLS_EXCLUDE_CATEGORIES}}"
     SKILLS_EXCLUDE_KEYS="${CFG_SKILLS_EXCLUDE_KEYS:-${SKILLS_EXCLUDE_KEYS}}"
     _decode_content_repos
+    _decode_skill_paths
 }
 
 # Copy-once starter config, seeded from the resolved (pre-YAML) fallback
@@ -1102,6 +1241,10 @@ _run_scaffold() {
     while IFS= read -r line; do
         [[ -n "${line}" ]] && extra_args+=("${line}")
     done < <(_content_repos_args)
+    extra_args+=("${SKILL_PATH_ARGS[@]+"${SKILL_PATH_ARGS[@]}"}")
+    local sp_sha
+    sp_sha="$(_skill_paths_sha)"
+    [[ -n "${sp_sha}" ]] && extra_args+=(--skill-paths-sha "${sp_sha}")
 
     "${PYTHON}" "${HARNESS_SRC}/harness.py" \
         --workspace               "${WORKSPACE}" \
@@ -1143,6 +1286,7 @@ cmd_install() {
     # Clones each configured repo (or uses a --content-repo-local-path
     # override) into CONTENT_REPO_RESOLVED_PATHS, parallel to CONTENT_REPO_NAMES.
     _resolve_content_repos
+    _resolve_skill_paths
     # Custom tools run after every content repo is available so their
     # custom.yaml (if any) is merged into CUSTOM_TOOLS, in config order —
     # later repos' commands win on name collision.
@@ -1205,6 +1349,9 @@ cmd_sync() {
             for s in "${CONTENT_REPO_SHAS[@]:-}"; do
                 [[ -n "${s}" ]] && sha_args+=(--content-repo-sha "${s}")
             done
+            local sp_sha
+            sp_sha="$(_skill_paths_sha)"
+            [[ -n "${sp_sha}" ]] && sha_args+=(--skill-paths-sha "${sp_sha}")
             if "${PYTHON}" "${HARNESS_SRC}/harness.py" \
                 --workspace "${WORKSPACE}" \
                 --check-only \
@@ -1215,6 +1362,7 @@ cmd_sync() {
     fi
 
     _resolve_content_repos
+    _resolve_skill_paths
     local repo_path
     for repo_path in "${CONTENT_REPO_RESOLVED_PATHS[@]:-}"; do
         [[ -n "${repo_path}" ]] && _merge_content_custom "${repo_path}"

@@ -42,6 +42,16 @@ contentRepos: []
 #   url: https://github.com/my-org/ai-content
 #   ref: main
 
+# Single skills pulled from a path inside someone else's repo. Point `url` at
+# the directory on GitHub and the ref and sub-path are read straight out of it;
+# a path holding SKILL.md is one skill, otherwise every sub-directory holding
+# one is taken. Merged below the bundled defaults and above `contentRepos`, so
+# a repo you curate always outranks a skill you pulled from elsewhere.
+# `name` (rename), `ref` (override the URL's) and `path` (for a remote whose
+# URL has no /tree/ part) are all optional.
+skillPaths: []
+# - url: https://github.com/mattpocock/skills/tree/main/skills/productivity/grill-me
+
 # Skill-only include/exclude filtering (by category, category.subcategory, or
 # explicit key). Agents are never filtered this way. Empty include means
 # "install everything" (today's default behavior).

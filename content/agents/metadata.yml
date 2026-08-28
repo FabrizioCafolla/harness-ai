@@ -1,3 +1,6 @@
+# Agent catalog for the bundled `default` source: per-tool frontmatter for every
+# agent file under content/agents/, which carry no frontmatter of their own.
+
 default:
   opencode:
   claude:
