@@ -1179,7 +1179,16 @@ cmd_sync() {
     # (HEAD SHA), so it can't see uncommitted local edits, and previously
     # cmd_sync ignored both flags outright and always trusted the SHA check.
     if [[ "${FORCE}" == "true" || -n "${LOCAL_PATH}" ]]; then
+        # Skipping the ls-remote fast path is not enough: harness.py re-reads
+        # .harness-ai/lock itself and returns "no changes detected" on a match,
+        # so --force was a silent no-op here. Remove the lock like cmd_install
+        # does. This is what makes --force able to pick up a change the
+        # identity hash cannot see at all, e.g. a new .harness-ai/skills/local/
+        # or .harness-ai/commands/local/ entry.
         info "Forcing re-scaffold (skipping hash fast-path)"
+        if [[ -f "${WORKSPACE}/.harness-ai/lock" ]]; then
+            rm -f "${WORKSPACE}/.harness-ai/lock"
+        fi
     else
         # Fast check: skip the full clone+scaffold if every configured repo's SHA
         # resolves. An unresolved SHA (e.g. private repo auth failed) means the

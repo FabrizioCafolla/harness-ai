@@ -245,6 +245,31 @@ else
 fi
 
 echo ""
+echo "=== sync --force: re-scaffolds even on a matching lock, picking up a new local entry ==="
+# Regression: cmd_sync skipped only its own ls-remote fast path, then harness.py
+# re-read .harness-ai/lock and returned "no changes detected" anyway, so --force
+# silently did nothing. The identity hash (harness-ai HEAD + content repo SHAs)
+# cannot see a hand-authored local entry at all, which makes --force the only
+# way to pick one up.
+ws=$(fresh_scratch "sync-force")
+bash "${REPO_DIR}/cli.sh" install --local-path "${REPO_DIR}" --workspace "${ws}" >"${ws}.log" 2>&1
+rc=$?
+if [[ ${rc} -ne 0 ]]; then
+    fail "cli.sh install exited ${rc} (see ${ws}.log)"
+else
+    # The lock install just wrote is the REAL digest, so the second run matches
+    # it: that match is the whole point. A bogus lock would never match and the
+    # scaffold would re-run even unfixed, making this test prove nothing.
+    mkdir -p "${ws}/.harness-ai/commands/local/ns"
+    printf -- '---\nname: forced\ndescription: Added after the lock was written.\n---\n\nbody\n' \
+        >"${ws}/.harness-ai/commands/local/ns/forced.md"
+
+    bash "${REPO_DIR}/cli.sh" sync --local-path "${REPO_DIR}" --workspace "${ws}" >"${ws}-force.log" 2>&1
+    assert_not_contains "${ws}-force.log" "no changes detected" "sync --force does not short-circuit on the lock"
+    assert_file_exists "${ws}/.claude/commands/ns/forced.md" "the new local command is linked after a forced sync"
+fi
+
+echo ""
 echo "=== Results: ${PASS} passed, ${FAIL} failed ==="
 rm -rf "${SCRATCH_ROOT}"
 [[ ${FAIL} -eq 0 ]]
