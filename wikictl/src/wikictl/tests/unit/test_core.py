@@ -113,6 +113,17 @@ class TestListEntries:
     def test_nonexistent_directory(self, tmp_path: Path):
         assert list_entries(tmp_path / "nope") == []
 
+    def test_malformed_neighbour_does_not_abort_the_listing(self, tmp_path: Path):
+        """A non-entry file with an unparseable `---` block used to raise
+        yaml.ScannerError out of list_entries and take down index/serve/edit."""
+        create_entry(tmp_path, "good-note", "fine")
+        (tmp_path / "customers").mkdir()
+        (tmp_path / "customers" / "email.md").write_text(
+            "---\nOggetto: Ciao\nNota: sito offline: dominio scaduto\n---\n\nbody\n"
+        )
+        entries = list_entries(tmp_path)
+        assert [e.name for e in entries] == ["good-note"]
+
 
 class TestEditEntry:
     def test_update_description(self, tmp_path: Path):

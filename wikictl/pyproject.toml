@@ -12,6 +12,9 @@ license = "MIT"
 dependencies = [
     "click>=8.1",
     "python-frontmatter>=1.1",
+    # Direct import in frontmatter.py (YAMLError handling); frontmatter pulls
+    # it in too, but a transitive dep is not a contract.
+    "pyyaml>=6.0",
     "structlog>=24.1",
 ]
 

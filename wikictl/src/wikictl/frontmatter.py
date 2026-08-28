@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import frontmatter
+import yaml
 
 from wikictl.models import WikiEntry
 
@@ -30,9 +31,35 @@ def _format_datetime(value: str | datetime) -> str:
     return str(value)
 
 
+class MalformedEntryError(ValueError):
+    """A file opens with a `---` block that is not parseable YAML.
+
+    Subclasses ValueError so every existing `except ValueError` path keeps
+    working, while carrying the offending path for a message a human can act on.
+    """
+
+    def __init__(self, path: Path, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"{path}: the `---` header block is not valid YAML ({reason})")
+
+
 def parse_file(path: Path) -> WikiEntry:
-    """Parse a markdown file with YAML frontmatter into a WikiEntry."""
-    post = frontmatter.load(str(path))
+    """Parse a markdown file with YAML frontmatter into a WikiEntry.
+
+    Raises MalformedEntryError (a ValueError) when the leading `---` block
+    cannot be parsed, and KeyError when it parses but carries no `name` (i.e.
+    the file simply is not a wiki entry).
+    """
+    try:
+        post = frontmatter.load(str(path))
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        where = f"line {mark.line + 1}, column {mark.column + 1}" if mark else "position unknown"
+        problem = getattr(exc, "problem", None) or str(exc).splitlines()[0]
+        raise MalformedEntryError(path, f"{problem} at {where}") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise MalformedEntryError(path, str(exc)) from exc
     meta = post.metadata
 
     created_at = _parse_datetime(meta.get("created_at", datetime.now(UTC)))

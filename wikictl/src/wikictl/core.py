@@ -8,7 +8,7 @@ from pathlib import Path
 
 import structlog
 
-from wikictl.frontmatter import parse_file, serialize_entry
+from wikictl.frontmatter import MalformedEntryError, parse_file, serialize_entry
 from wikictl.models import WikiEntry, validate_name
 
 RESERVED_NAMES = frozenset({"index"})
@@ -153,8 +153,15 @@ def list_entries(wiki_dir: Path, tag: str | None = None) -> list[WikiEntry]:
             continue
         try:
             entry = parse_file(path)
+        except MalformedEntryError as exc:
+            # A `---` block that is not YAML. Not fatal: a wiki tree also holds
+            # plain markdown that merely opens with `---` (client documents,
+            # email headers). Warn so it stays fixable, never abort the whole
+            # listing over one unrelated file.
+            log.warning("entry_skipped_malformed", path=str(path), reason=exc.reason)
+            continue
         except (KeyError, ValueError):
-            continue  # skip malformed files
+            continue  # parses fine but carries no `name`: not a wiki entry
         if tag and tag not in entry.tags:
             continue
         entries.append(entry)

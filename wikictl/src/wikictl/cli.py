@@ -19,12 +19,51 @@ from wikictl.core import (
     rebuild_index,
     resolve_wiki_dir,
 )
-from wikictl.frontmatter import serialize_entry
+from wikictl.frontmatter import MalformedEntryError, serialize_entry
 from wikictl.logging import configure_logging, get_logger
 from wikictl.models import metadata_schema
 
 
-@click.group()
+class FriendlyGroup(click.Group):
+    """Turn an unhandled crash into one actionable line instead of a traceback.
+
+    Every command already reports the errors it expects (missing entry, bad
+    name, existing file). This is the backstop for the rest: the user gets what
+    went wrong and how to see more, not 40 lines of interpreter frames.
+    """
+
+    def invoke(self, ctx: click.Context) -> object:
+        try:
+            return super().invoke(ctx)
+        except click.ClickException:
+            raise
+        except MalformedEntryError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            click.echo(
+                "Hint: that file opens with a `---` block wikictl reads as YAML frontmatter. "
+                "Quote the values that contain ':' or '#', or drop the leading `---` if the file "
+                "is not a wiki entry.",
+                err=True,
+            )
+            sys.exit(1)
+        except FileNotFoundError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            sys.exit(1)
+        except PermissionError as exc:
+            click.echo(f"Error: permission denied: {exc}", err=True)
+            sys.exit(1)
+        except OSError as exc:
+            click.echo(f"Error: filesystem error: {exc}", err=True)
+            sys.exit(1)
+        except Exception as exc:  # noqa: BLE001 - deliberate CLI backstop
+            log = get_logger(__name__)
+            log.debug("unhandled_exception", exc_info=True)
+            click.echo(f"Error: {type(exc).__name__}: {exc}", err=True)
+            click.echo("Hint: re-run with -vv to see the full traceback.", err=True)
+            sys.exit(1)
+
+
+@click.group(cls=FriendlyGroup)
 @click.version_option(package_name="wikictl")
 @click.option(
     "--wiki-dir",

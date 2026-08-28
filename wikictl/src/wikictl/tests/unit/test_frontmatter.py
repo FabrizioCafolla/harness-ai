@@ -3,7 +3,9 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from wikictl.frontmatter import parse_file, serialize_entry
+import pytest
+
+from wikictl.frontmatter import MalformedEntryError, parse_file, serialize_entry
 from wikictl.models import WikiEntry
 
 
@@ -98,3 +100,32 @@ class TestSerializeAndParse:
         )
         text = serialize_entry(entry)
         assert "section" not in text
+
+
+class TestMalformedHeader:
+    """A `---` block that is not YAML must fail loudly and namefully, not as a
+    raw yaml.ScannerError from three libraries down."""
+
+    def test_unquoted_colon_in_value(self, tmp_path: Path):
+        # The real shape that broke `wikictl serve`: an email header block whose
+        # value carries a second ':'.
+        bad = tmp_path / "email.md"
+        bad.write_text("---\nOggetto: Ciao\nNota: sito offline: dominio scaduto\n---\n\nbody\n")
+        with pytest.raises(MalformedEntryError) as exc:
+            parse_file(bad)
+        assert str(bad) in str(exc.value)
+        assert "line 3" in str(exc.value)
+        assert exc.value.path == bad
+
+    def test_is_a_value_error(self, tmp_path: Path):
+        bad = tmp_path / "bad.md"
+        bad.write_text("---\na: b: c\n---\n")
+        assert isinstance(MalformedEntryError(bad, "x"), ValueError)
+
+    def test_valid_yaml_without_name_still_raises_key_error(self, tmp_path: Path):
+        # Parses fine, simply is not an entry: must stay a KeyError so callers
+        # can tell "not an entry" apart from "broken file".
+        not_entry = tmp_path / "plain.md"
+        not_entry.write_text('---\ntitle: "just a doc"\n---\n\nbody\n')
+        with pytest.raises(KeyError):
+            parse_file(not_entry)
