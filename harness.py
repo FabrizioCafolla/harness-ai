@@ -752,15 +752,22 @@ def _render_skill(
     key: str,
     meta: dict,
     body: str,
-    refs_src: pathlib.Path | None,
+    skill_src: pathlib.Path | None,
 ) -> tuple[bool, bool]:
-    """Returns (rendered, refs_foreign). `rendered` is False if the skill's
+    """Returns (rendered, assets_foreign). `rendered` is False if the skill's
     main tool-dir slot was blocked by foreign content (design.md D5/D6) — the
-    skill is not counted as linked. `refs_foreign` is True if a separate,
-    foreign `references/` slot was blocked — tracked independently so it's
+    skill is not counted as linked. `assets_foreign` is True if a separate,
+    foreign asset slot was blocked — tracked independently so it's
     reflected in the `foreign` counter even when the main file rendered fine
     (found during fresh-eyes review: previously silent in the sync summary,
-    only visible via the `[foreign]` log line)."""
+    only visible via the `[foreign]` log line).
+
+    Everything the source ships beside SKILL.md travels with it: `references/`,
+    but equally `scripts/`, `agents/`, examples, any file. Carrying only
+    `references/` silently dropped the rest, which broke skills whose own
+    instructions point at those files (`.claude/skills/<key>/scripts/...`) and
+    was the reason such a skill had to be hand-copied into `local`, where the
+    whole-directory symlink preserved it."""
     canonical_dir = ws / _HARNESS_DIR / "skills" / source_name / key
     canonical_file = canonical_dir / f"{tool}.SKILL.md"
     _write_with_frontmatter(canonical_file, meta, body)
@@ -768,21 +775,45 @@ def _render_skill(
     base = ws / tool_paths["base_dir"]
     filename = tool_paths["skills"]["filename"]
     skill_dir = base / tool_paths["skills"]["dir"] / key
+    # A key migrating OUT of `local` back to a default/repo source still has
+    # local's whole-directory symlink sitting here: the cleanup pass that would
+    # drop it runs AFTER this render (design.md D6a orders it for the opposite
+    # direction only). Both outcomes are wrong if we just mkdir over it, so the
+    # symlink goes first: a dangling one raises FileExistsError (exist_ok covers
+    # an existing dir, not a broken link), and a live one would make every write
+    # below land INSIDE local's own canonical store. Only symlinks are removed
+    # here; a real directory is left for _make_symlink's foreign guard to judge.
+    if skill_dir.is_symlink():
+        skill_dir.unlink()
     skill_dir.mkdir(parents=True, exist_ok=True)
     result = _make_symlink(skill_dir / filename, canonical_file)
     if result == "foreign":
         print(f"  │  [foreign] skill '{key}' ({tool}, source: {source_name}) — real content already at {(skill_dir / filename).relative_to(ws)}, left untouched")
 
-    refs_foreign = False
-    if refs_src and refs_src.exists():
-        canonical_refs = canonical_dir / "references"
-        shutil.copytree(refs_src, canonical_refs, dirs_exist_ok=True)
-        refs_result = _make_symlink(skill_dir / "references", canonical_refs)
-        if refs_result == "foreign":
-            refs_foreign = True
-            print(f"  │  [foreign] skill '{key}' references ({tool}, source: {source_name}) — real content already at {(skill_dir / 'references').relative_to(ws)}, left untouched")
+    assets_foreign = False
+    if skill_src and skill_src.is_dir():
+        assets = sorted(e for e in skill_src.iterdir() if e.name != filename)
+        # Drop canonical assets the source no longer ships, so a deleted script
+        # doesn't keep hanging around as a runnable leftover.
+        expected = {e.name for e in assets}
+        for stale in canonical_dir.iterdir():
+            if stale.name == f"{tool}.SKILL.md" or stale.name in expected:
+                continue
+            if any(stale.name == f"{t}.SKILL.md" for t in ("claude", "opencode", "agents")):
+                continue  # another tool profile's render, not an asset
+            shutil.rmtree(stale) if stale.is_dir() and not stale.is_symlink() else stale.unlink()
 
-    return result != "foreign", refs_foreign
+        for asset in assets:
+            canonical_asset = canonical_dir / asset.name
+            if asset.is_dir():
+                shutil.copytree(asset, canonical_asset, dirs_exist_ok=True)
+            else:
+                shutil.copy2(asset, canonical_asset)
+            if _make_symlink(skill_dir / asset.name, canonical_asset) == "foreign":
+                assets_foreign = True
+                print(f"  │  [foreign] skill '{key}' asset '{asset.name}' ({tool}, source: {source_name}): real content already at {(skill_dir / asset.name).relative_to(ws)}, left untouched")
+
+    return result != "foreign", assets_foreign
 
 
 def _render_agent(
@@ -1020,8 +1051,8 @@ def scaffold(
                     print(f"  │  [WARN] missing content for skill '{key}' (source: {source_name})")
                     continue
                 body = content_file.read_text()
-                refs_src = content_root / "skills" / key / "references"
-                rendered, refs_foreign = _render_skill(ws, tool, tool_paths, source_name, key, meta, body, refs_src if refs_src.exists() else None)
+                skill_src = content_root / "skills" / key
+                rendered, refs_foreign = _render_skill(ws, tool, tool_paths, source_name, key, meta, body, skill_src)
                 if rendered:
                     rendered_skills.append(key)
                     _bump(tool, source_name, "skill", "linked")

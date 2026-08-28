@@ -29,6 +29,8 @@ test-all: check
     just test-symlinks
     just test-local-source
     just test-local-source-migration-safety
+    just test-local-source-migration-out
+    just test-skill-assets
     just test-category-filter
     just test-workspace-source
     just test-commands
@@ -354,6 +356,76 @@ test-local-source-migration-safety: clean
 
 # Verify category/subcategory/key include+exclude filtering (skills only,
 # design.md D5): restrict to one category, then carve one key out of it.
+# The reverse migration: a key leaving `local` and going back to a default/repo
+# source. `local`'s tool-dir shape is a whole-directory symlink, and the cleanup
+# that removes it runs after the render, so the render has to cope with finding
+# it there. This crashed with FileExistsError on the dangling link.
+test-local-source-migration-out: clean
+    @echo "==> First run: `local` claims a key that `default` also ships..."
+    mkdir -p {{workspace}}/.harness-ai/skills/local/agent-creator
+    printf -- '---\nname: agent-creator\ndescription: Local override.\n---\n\nLocal body.\n' \
+        > {{workspace}}/.harness-ai/skills/local/agent-creator/SKILL.md
+    {{uv}} --workspace {{workspace}} --tools claude --install-defaults true \
+        --create-file-mcp false --create-file-hooks false --create-file-setting false \
+        --update-gitignore false | tee {{workspace}}-run1.log
+    test -L {{workspace}}/.claude/skills/agent-creator \
+        && echo "  [OK] local owns the key: tool dir is a whole-directory symlink" \
+        || { echo "  [FAIL] expected a symlink from the local source"; exit 1; }
+    @echo "==> Removing the local source: the key must fall back to `default`, not crash..."
+    rm -rf {{workspace}}/.harness-ai/skills/local/agent-creator
+    rm -f {{workspace}}/.harness-ai/lock
+    {{uv}} --workspace {{workspace}} --tools claude --install-defaults true \
+        --create-file-mcp false --create-file-hooks false --create-file-setting false \
+        --update-gitignore false | tee {{workspace}}-run2.log
+    test ! -L {{workspace}}/.claude/skills/agent-creator \
+        && echo "  [OK] tool dir is a real directory again (default's shape)" \
+        || { echo "  [FAIL] still local's directory-symlink shape"; exit 1; }
+    test -L {{workspace}}/.claude/skills/agent-creator/SKILL.md \
+        && echo "  [OK] SKILL.md symlinked from the default canonical store" \
+        || { echo "  [FAIL] SKILL.md not linked after the migration out of local"; exit 1; }
+    grep -q "Local body" {{workspace}}/.claude/skills/agent-creator/SKILL.md \
+        && { echo "  [FAIL] CRITICAL: still serving the removed local body"; exit 1; } \
+        || echo "  [OK] content comes from default, not the removed local copy"
+    @echo "test-local-source-migration-out: OK"
+
+# Everything shipped beside SKILL.md must reach the tool dir, not just
+# `references/`. A skill whose own instructions point at
+# `.claude/skills/<key>/scripts/...` is broken if those files are dropped.
+test-skill-assets: clean
+    @echo "==> Content repo shipping a skill with scripts/, references/ and a loose file..."
+    mkdir -p {{workspace}} {{workspace}}-repo/skills/assety/scripts {{workspace}}-repo/skills/assety/references
+    printf 'skills:\n  assety:\n    claude:\n      name: assety\n      description: Has assets.\n' \
+        > {{workspace}}-repo/skills/metadata.yml
+    printf 'Body.\n' > {{workspace}}-repo/skills/assety/SKILL.md
+    printf 'console.log("run me");\n' > {{workspace}}-repo/skills/assety/scripts/run.mjs
+    printf 'ref\n' > {{workspace}}-repo/skills/assety/references/note.md
+    printf 'loose\n' > {{workspace}}-repo/skills/assety/EXAMPLE.md
+    {{uv}} --workspace {{workspace}} --tools claude --install-defaults true \
+        --content-repos "assets={{workspace}}-repo" \
+        --create-file-mcp false --create-file-hooks false --create-file-setting false \
+        --update-gitignore false | tee {{workspace}}-run1.log
+    test -f {{workspace}}/.claude/skills/assety/scripts/run.mjs \
+        && echo "  [OK] scripts/ reached the tool dir" \
+        || { echo "  [FAIL] scripts/ was dropped"; exit 1; }
+    test -f {{workspace}}/.claude/skills/assety/references/note.md \
+        && echo "  [OK] references/ still works" \
+        || { echo "  [FAIL] references/ regressed"; exit 1; }
+    test -f {{workspace}}/.claude/skills/assety/EXAMPLE.md \
+        && echo "  [OK] loose file alongside SKILL.md carried too" \
+        || { echo "  [FAIL] loose file was dropped"; exit 1; }
+    @echo "==> Removing an asset upstream: it must not linger as a runnable leftover..."
+    rm -rf {{workspace}}-repo/skills/assety/scripts
+    rm -f {{workspace}}/.harness-ai/lock
+    {{uv}} --workspace {{workspace}} --tools claude --install-defaults true \
+        --content-repos "assets={{workspace}}-repo" \
+        --create-file-mcp false --create-file-hooks false --create-file-setting false \
+        --update-gitignore false > /dev/null
+    test ! -e {{workspace}}/.claude/skills/assety/scripts \
+        && echo "  [OK] removed asset pruned from the canonical store and tool dir" \
+        || { echo "  [FAIL] stale asset still present"; exit 1; }
+    rm -rf {{workspace}}-repo {{workspace}}-run1.log
+    @echo "test-skill-assets: OK"
+
 test-category-filter: clean
     @echo "==> Running scaffold (skills.include.categories=meta, exclude.keys=agent-creator)..."
     mkdir -p {{workspace}}
