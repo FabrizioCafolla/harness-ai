@@ -76,6 +76,32 @@ class TestHtmlEndpoints:
         assert "CLI" in resp.text
         assert "Architecture" in resp.text
 
+    def test_sidebar_entry_label_is_humanized_name_not_description(self, tmp_path: Path):
+        """Regression: the sidebar link text must be the entry's name, humanized
+
+        (spaces, title case, acronyms) — not the description truncated at a fixed
+        width. A long description previously got cut mid-sentence for every entry.
+        """
+        long_desc = (
+            "A very long explanatory description that should not appear as the "
+            "sidebar label text and would previously have been truncated instead"
+        )
+        create_entry(tmp_path, "dns-domain-mail-exit", long_desc, section="Architecture")
+        client = _client(tmp_path)
+        resp = client.get("/")
+        assert resp.status_code == 200
+        # Humanized name (with acronym fix-up) is the visible sidebar label.
+        assert "DNS Domain Mail Exit" in resp.text
+        # The old bug's exact truncation slice must not appear as label text.
+        assert long_desc[:52] not in resp.text
+
+    def test_breadcrumb_current_is_humanized_name_not_description(self, tmp_path: Path):
+        create_entry(tmp_path, "cost-traffic-observability", "A long sentence " * 5)
+        client = _client(tmp_path)
+        resp = client.get("/wiki/cost-traffic-observability")
+        assert resp.status_code == 200
+        assert '<span class="crumb-current">Cost Traffic Observability</span>' in resp.text
+
     def test_home_links_rewritten(self, tmp_path: Path):
         create_entry(tmp_path, "my-note", "A note")
         rebuild_index(tmp_path)

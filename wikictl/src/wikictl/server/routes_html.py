@@ -94,7 +94,7 @@ def _build_sidebar_tree(entries: list[WikiEntry], wiki_dir: Path) -> list[dict]:
                     e: WikiEntry = obj  # type: ignore[assignment]
                     children.append(
                         {
-                            "display": (e.description or e.name)[:52],
+                            "display": _subsection_display(e.name),
                             "key": f"e-{e.name}",
                             "url": e.wiki_url(wiki_dir),
                             "children": [],
@@ -144,7 +144,7 @@ def _build_sidebar_tree(entries: list[WikiEntry], wiki_dir: Path) -> list[dict]:
         for sec in sorted(by_sec):
             children = [
                 {
-                    "display": (e.description or e.name)[:52],
+                    "display": _subsection_display(e.name),
                     "key": f"e-{e.name}",
                     "url": e.wiki_url(wiki_dir),
                     "children": [],
@@ -184,7 +184,7 @@ def _build_breadcrumbs(path: str, entry: WikiEntry) -> list[dict]:
     elif entry.section:
         anchor = "tree-" + entry.section.lower().replace(" ", "-")
         crumbs.append({"display": entry.section, "url": f"#{anchor}"})
-    crumbs.append({"display": entry.description or entry.name, "url": None})
+    crumbs.append({"display": _subsection_display(entry.name), "url": None})
     return crumbs
 
 
