@@ -340,7 +340,7 @@ else
 fi
 
 echo ""
-echo "=== content-repo custom.yaml: its own skillPaths merge automatically, root config still wins ties ==="
+echo "=== content-repo config.yaml: its own skillPaths merge automatically, root config still wins ties ==="
 ws=$(fresh_scratch "content-repo-paths")
 src_repo="${SCRATCH_ROOT}/content-repo-paths-skill-source"
 repo_dir="${SCRATCH_ROOT}/content-repo-paths-repo"
@@ -355,7 +355,7 @@ mkdir -p "${repo_dir}/skills/repo-own-skill"
 printf 'default:\n  claude:\n\nskills:\n  repo-own-skill:\n    category: engineering\n    subcategory: coding\n    claude:\n      name: repo-own-skill\n      description: Ships with the content repo itself.\n' \
     > "${repo_dir}/skills/metadata.yml"
 printf '# Repo-own skill\nBody.' > "${repo_dir}/skills/repo-own-skill/SKILL.md"
-cat >"${repo_dir}/custom.yaml" <<EOF
+cat >"${repo_dir}/config.yaml" <<EOF
 skillPaths:
   - url: file://${src_repo}
     path: gamma
@@ -378,7 +378,7 @@ if [[ ${rc} -ne 0 ]]; then
     fail "cli.sh install exited ${rc} (see ${ws}.log)"
 else
     assert_file_exists "${ws}/.claude/skills/repo-own-skill/SKILL.md" "content repo's own skill still installs"
-    assert_file_exists "${ws}/.claude/skills/gamma/SKILL.md" "content repo's own custom.yaml skillPaths entry merged and fetched"
+    assert_file_exists "${ws}/.claude/skills/gamma/SKILL.md" "content repo's own config.yaml skillPaths entry merged and fetched"
 fi
 rm -rf "${src_repo}" "${repo_dir}"
 

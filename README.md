@@ -216,7 +216,7 @@ install:
 
 ## Content repos
 
-Point at one or more GitHub repos that follow the `content/` structure to merge additional (or private) agents and skills on top of the bundled `harness-ai` source. Each is a named **source** — see [Sources and the canonical store](#sources-and-the-canonical-store) for how they're materialized into the workspace. A content repo can also ship its own `custom.yaml` — install commands and `skillPaths`/`agentPaths`/`commandPaths` entries that merge into the workspace's own automatically — see [harness-ai's AGENTS.md](https://github.com/FabrizioCafolla/harness-ai/blob/main/AGENTS.md#custom-yaml-a-content-repos-own-config).
+Point at one or more GitHub repos that follow the `content/` structure to merge additional (or private) agents and skills on top of the bundled `harness-ai` source. Each is a named **source** — see [Sources and the canonical store](#sources-and-the-canonical-store) for how they're materialized into the workspace. A content repo can also ship its own `config.yaml` — install commands and `skillPaths`/`agentPaths`/`commandPaths` entries that merge into the workspace's own automatically — see [harness-ai's AGENTS.md](https://github.com/FabrizioCafolla/harness-ai/blob/main/AGENTS.md#configyaml-a-content-repos-own-config).
 
 ### Layout
 
@@ -334,7 +334,7 @@ The ref and the sub-path are read out of the GitHub URL, so that is usually the 
 
 Frontmatter is read from the file itself (third-party content carries it inline, unlike a content repo's `metadata.yml`) and passed through verbatim, extra keys included. Nothing of ours is stamped on top: harness-ai's bundled `license`/`author` defaults are deliberately not applied to content someone else wrote.
 
-**Precedence.** `frompaths` sits above the bundled `harness-ai` source and below `contentRepos`: a repo you curate always outranks something pulled from elsewhere, and `local` still wins over everything. Fetching uses a sparse checkout of just that sub-path, and `sync`'s fast path tracks each entry's remote SHA with `git ls-remote`, so an upstream change is picked up without cloning to find out — a content repo's own `skillPaths`/`agentPaths`/`commandPaths` entries (via its `custom.yaml`) aren't knowable without cloning it first, so they're outside this fast path and only picked up on a full run.
+**Precedence.** `frompaths` sits above the bundled `harness-ai` source and below `contentRepos`: a repo you curate always outranks something pulled from elsewhere, and `local` still wins over everything. Fetching uses a sparse checkout of just that sub-path, and `sync`'s fast path tracks each entry's remote SHA with `git ls-remote`, so an upstream change is picked up without cloning to find out — a content repo's own `skillPaths`/`agentPaths`/`commandPaths` entries (via its `config.yaml`) aren't knowable without cloning it first, so they're outside this fast path and only picked up on a full run.
 
 ---
 

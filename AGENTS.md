@@ -79,7 +79,7 @@ Nothing about harness-ai is vendored into the published feature. `cli.sh` is the
 - **wikictl** (`install.wikictl` / `--wikictl`, default **off**) — file-based AI memory layer. The source lives at `wikictl/` in this repo, fetched at the pinned ref and installed with `uv tool install "${HARNESS_SRC}/wikictl[serve]"`; warns and continues if `uv` is missing. `cli.sh` passes `--install-wikictl` to `harness.py`, which then merges the gated `config/mcp.wikictl.json` server entry (default port **9797**) into `.mcp.json` (Claude Code) and, when `opencode` is an active tool, `config/mcp.wikictl.opencode.json` into `opencode.json`'s `mcp` key (`_merge_wikictl_mcp_opencode`). The single `wikictl` skill lives in `content/skills/` and deploys unconditionally, regardless of `install.wikictl` — it just has nothing to talk to until the CLI/MCP server is installed.
   - Agents using wikictl read the metadata-first protocol from the MCP server itself: scan with `list_entries`/`search_entries` (metadata only), evaluate relevance from `description`/`tags`, then `read_entry` only what's needed. `get_schema` returns the entry metadata contract (field names, types, required/optional, validation rules) and works on an empty wiki.
   - `cli.sh` guarantees `uv`-installed binaries (wikictl, Headroom) resolve on `PATH` immediately after install: `_ensure_uv_tool_path()` exports `uv tool dir --bin` onto `PATH` for the rest of the current run, and a best-effort `uv tool update-shell` (never fails the install) makes them resolvable in later shells too.
-- **custom** (`install.custom`, a `name: <shell command>` map, default `{}`) — arbitrary extra install commands not covered by the four built-ins above (e.g. `speckit: "uv tool install speckit-cli"`). Each entry runs as `bash -c "<command>"` during `install` (never `sync`), warn-and-continue on failure. No already-installed check — commands are expected to be self-idempotent, the same contract mise's `[tasks]` and devbox's `init_hook` use for the same flat name→command shape. A content repo can ship its own `custom.yaml` with the same `install:` map (merged in, repo wins a name collision) plus its own `skillPaths`/`agentPaths`/`commandPaths` lists (appended after the workspace's own, so a workspace-declared entry wins a same-name collision) — see [Content Repo Format](#content-repo-format).
+- **custom** (`install.custom`, a `name: <shell command>` map, default `{}`) — arbitrary extra install commands not covered by the four built-ins above (e.g. `speckit: "uv tool install speckit-cli"`). Each entry runs as `bash -c "<command>"` during `install` (never `sync`), warn-and-continue on failure. No already-installed check — commands are expected to be self-idempotent, the same contract mise's `[tasks]` and devbox's `init_hook` use for the same flat name→command shape. A content repo can ship its own `config.yaml` with the same `install:` map (merged in, repo wins a name collision) plus its own `skillPaths`/`agentPaths`/`commandPaths` lists (appended after the workspace's own, so a workspace-declared entry wins a same-name collision) — see [Content Repo Format](#content-repo-format).
 
 **Claude Code reads `CLAUDE.md`, not `AGENTS.md`.** When `claude` is an active tool, `harness.py` symlinks `CLAUDE.md` to the scaffolded `AGENTS.md` after writing it (same `_make_symlink` foreign-guard as every other render path) — otherwise the managed instructions never reach it.
 
@@ -101,7 +101,7 @@ Five source kinds, three different workflows (`workspace` reuses the content-rep
 | `harness-ai` | harness-ai's own PRs | in `metadata.yml`, never in the body | see below |
 | a content repo | that repo's own PRs | same shape as `harness-ai` — a content repo is structurally identical to `content/` | same steps, against the content repo's own `agents/`/`skills/` tree |
 | `workspace` (a consuming workspace's `.harness-ai/local/`) | that workspace directly | same shape as `harness-ai`/a content repo | same steps, against `.harness-ai/local/agents/`/`.harness-ai/local/skills/` — auto-detected, no config entry |
-| `frompaths` (a path inside someone else's repo) | nobody here: it is fetched | **inline**, in the source file, passed through verbatim | add a `skillPaths`/`agentPaths`/`commandPaths` entry to `.harness-ai/config.yaml` (or a content repo's `custom.yaml`); harness-ai sparse-checks-out the sub-path and adapts it, so there is nothing to register |
+| `frompaths` (a path inside someone else's repo) | nobody here: it is fetched | **inline**, in the source file, passed through verbatim | add a `skillPaths`/`agentPaths`/`commandPaths` entry to `.harness-ai/config.yaml` (or a content repo's `config.yaml`); harness-ai sparse-checks-out the sub-path and adapts it, so there is nothing to register |
 | `local` (a consuming workspace's `.harness-ai/skills/local/`) | that workspace directly | **inline**, in the file itself | drop a frontmatter'd `SKILL.md`/`<key>.md` under `.harness-ai/skills/local/<key>/` or `.harness-ai/agents/local/<key>.md` — nothing to register, harness-ai discovers it automatically on the next scaffold |
 
 The **"no YAML frontmatter in the body"** rule below is scoped to `harness-ai`/content-repo content only — `local` is the opposite on purpose (inline frontmatter, no `metadata.yml`), matching how Claude Code's own Skill/Agent authoring tools write files directly into a workspace.
@@ -251,7 +251,7 @@ your-content-repo/
 ├── opencode.json            # optional: full replacement for config/opencode.json
 ├── paths.yml                # optional: per-tool output paths, merged per-tool-key over the bundled default
 ├── agents.harness-ai.md     # optional: appended after the bundled agents.harness-ai.md
-└── custom.yaml               # optional: its own config, merged into the workspace's — see below
+└── config.yaml               # optional: its own config, merged into the workspace's — see below
 ```
 
 `agents/`, `skills/`, and `agents.harness-ai.md` are what real extensions actually use — see [Extending harness-ai](#extending-harness-ai) below. `hooks/`, `mcp.json`, and `paths.yml` are supported but optional/advanced.
@@ -264,9 +264,9 @@ Key rules:
 - `hooks/` and `mcp.json` are full replacements, not merged with defaults
 - `agents.harness-ai.md` is additive: both the bundled and the content-repo copy are appended to the managed AGENTS.md block, not replaced
 
-### `custom.yaml`: a content repo's own config
+### `config.yaml`: a content repo's own config
 
-A content repo can carry a `custom.yaml` at its root, merged into the workspace's own config automatically on every `install`/`sync` (no action needed by the consuming workspace):
+A content repo can carry a `config.yaml` at its root, merged into the workspace's own config automatically on every `install`/`sync` (no action needed by the consuming workspace):
 
 ```yaml
 install:
@@ -359,7 +359,7 @@ The recipes above call `harness.py` directly (via the `{{uv}}` variable) — use
 | `legacy-content-repo/` | old singular `contentRepo` key           | still works as sugar for a one-entry `contentRepos` list, with a deprecation warning |
 | `wikictl-enabled/`   | `install.wikictl: true`                   | wikictl actually installs, resolves on `PATH`, and `wikictl serve` boots and responds on port 9797 — not just that the config flag parsed |
 
-A few scenarios build their config inline in `run.sh` instead of a static fixture directory (multiple named `contentRepos` merging into separate canonical-store subfolders; `sync --force` picking up a hand-authored local entry; `skillPaths`/`agentPaths`/`commandPaths` fetched from a local `file://` repo; a content repo's own `custom.yaml` contributing `skillPaths` automatically).
+A few scenarios build their config inline in `run.sh` instead of a static fixture directory (multiple named `contentRepos` merging into separate canonical-store subfolders; `sync --force` picking up a hand-authored local entry; `skillPaths`/`agentPaths`/`commandPaths` fetched from a local `file://` repo; a content repo's own `config.yaml` contributing `skillPaths` automatically).
 
 Each fixture is copied into a scratch workspace under `tests/e2e/.scratch/` (gitignored, removed at the end of the run), never mutated in place. Add a new fixture by creating `tests/e2e/fixtures/<name>/.harness-ai/config.yaml` (or leaving it out, for a no-config-style case) and a matching block in `run.sh`.
 

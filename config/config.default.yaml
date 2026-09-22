@@ -33,7 +33,7 @@ scaffold:
 # auto-detected workspace-local, and hand-authored sources). The old singular
 # `contentRepo: {url, ref}` key still works as sugar for a one-entry list
 # (name derived from the URL), with a deprecation warning. A content repo can
-# ship its own custom.yaml (install commands + skillPaths/agentPaths/
+# ship its own config.yaml (install commands + skillPaths/agentPaths/
 # commandPaths) — see AGENTS.md's "Content Repo Format".
 contentRepos: []
 # - name: my-private-content

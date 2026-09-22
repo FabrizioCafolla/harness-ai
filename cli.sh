@@ -50,8 +50,8 @@
 #
 # skillPaths/agentPaths/commandPaths (a single skill, agent or command
 # fetched from a path inside someone else's repo) and a content repo's own
-# custom.yaml overrides have no CLI flags — config.yaml/custom.yaml only;
-# see config/config.default.yaml.
+# config.yaml overrides have no CLI flags — .harness-ai/config.yaml (or a
+# content repo's own config.yaml) only; see config/config.default.yaml.
 #   --interactive                Guided prompt mode
 #   --name <str>                 Extension display name (init-extension only)
 #   -h, --help                   Show this help
@@ -1213,7 +1213,7 @@ _install_openspec() {
 
 # ---------------------------------------------------------------------------
 # Content-repo own config (optional) — a content repo can ship its own
-# custom.yaml:
+# config.yaml:
 #   install: {name: command, ...}                same shape as install.custom
 #   skillPaths/agentPaths/commandPaths: [{url, ...}, ...]   same shape as
 #     the matching config.yaml lists
@@ -1226,8 +1226,8 @@ _install_openspec() {
 # ---------------------------------------------------------------------------
 _merge_content_config() {
     local content_repo_dir="$1"
-    local custom_file="${content_repo_dir}/custom.yaml"
-    [[ -f "${custom_file}" ]] || return 0
+    local config_file="${content_repo_dir}/config.yaml"
+    [[ -f "${config_file}" ]] || return 0
 
     # Four separate output files (not stdout lines): an install command can
     # itself contain literal newlines and braces (multi-line shell, jq), so
@@ -1235,7 +1235,7 @@ _merge_content_config() {
     local out_dir="${TEMP_DIR}/merge-content-config"
     mkdir -p "${out_dir}"
 
-    if ! "${PYTHON}" - "${custom_file}" "${out_dir}" \
+    if ! "${PYTHON}" - "${config_file}" "${out_dir}" \
         3<<<"${CUSTOM_TOOLS}" 4<<<"${CFG_SKILL_PATHS:-}" 5<<<"${CFG_AGENT_PATHS:-}" 6<<<"${CFG_COMMAND_PATHS:-}" <<'PYEOF'
 import os
 import re
@@ -1243,7 +1243,7 @@ import sys
 
 import yaml
 
-custom_file, out_dir = sys.argv[1:3]
+config_file, out_dir = sys.argv[1:3]
 base_custom = os.fdopen(3).read().rstrip("\n")
 base_paths = {
     "skillPaths": os.fdopen(4).read().rstrip("\n"),
@@ -1251,7 +1251,7 @@ base_paths = {
     "commandPaths": os.fdopen(6).read().rstrip("\n"),
 }
 
-with open(custom_file) as f:
+with open(config_file) as f:
     cfg = yaml.safe_load(f) or {}
 
 
@@ -1305,7 +1305,7 @@ for cfg_key in ("skillPaths", "agentPaths", "commandPaths"):
         f.write(combined)
 PYEOF
     then
-        die "Failed to parse ${custom_file} — check it is valid YAML."
+        die "Failed to parse ${config_file} — check it is valid YAML."
     fi
 
     CUSTOM_TOOLS="$(<"${out_dir}/install")"
@@ -1318,7 +1318,7 @@ PYEOF
 # ---------------------------------------------------------------------------
 # Custom tools (optional) — arbitrary extra install commands declared under
 # install.custom in config.yaml (merged with each content repo's own
-# custom.yaml, see _merge_content_config above). No already-installed check:
+# config.yaml, see _merge_content_config above). No already-installed check:
 # commands are expected to be self-idempotent, same contract mise's [tasks]
 # and devbox's init_hook use for the same flat name->command shape.
 # ---------------------------------------------------------------------------
@@ -1404,7 +1404,7 @@ cmd_install() {
     # Clones each configured repo (or uses a --content-repo-local-path
     # override) into CONTENT_REPO_RESOLVED_PATHS, parallel to CONTENT_REPO_NAMES.
     _resolve_content_repos
-    # Each content repo's own custom.yaml (if any) is merged into
+    # Each content repo's own config.yaml (if any) is merged into
     # CUSTOM_TOOLS and the CFG_*_PATHS blobs, in config order — later repos
     # win a name collision on install commands. Must run before the
     # *_paths resolve calls below, so a repo-declared path entry gets fetched too.
