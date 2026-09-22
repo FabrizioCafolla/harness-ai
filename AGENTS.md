@@ -76,14 +76,12 @@ Nothing about harness-ai is vendored into the published feature. `cli.sh` is the
 - **RTK** (`install.rtk` / `--no-rtk`, default on) — token-compressing Bash rewrite. Claude Code gets a `PreToolUse` hook (merged into `.claude/settings.json[hooks]`); OpenCode gets a static plugin (`config/opencode/rtk-plugin.ts` → `.opencode/plugins/rtk.ts`) that self-disables at runtime if `rtk` isn't on PATH — no cli.sh-side merge step needed for it, see `_apply_opencode_hook` in `harness.py`.
 - **Headroom** (`install.headroom` / `--no-headroom`, default on) — request-level context compression CLI; installed but inactive until `headroom wrap <cli>` (e.g. `headroom wrap claude`, `headroom wrap opencode`).
 - **openspec** (`install.openspec` / `--no-openspec`, default on) — installs `@fission-ai/openspec` via `npm install -g`; warns and continues if `npm` is missing or the install fails.
-- **wikictl** (`install.wikictl` / `--wikictl`, default **off**) — file-based AI memory layer. The source lives at `wikictl/` in this repo, fetched at the pinned ref and installed with `uv tool install "${HARNESS_SRC}/wikictl[serve]"`; warns and continues if `uv` is missing. `cli.sh` passes `--install-wikictl` to `harness.py`, which then merges the gated `config/mcp.wikictl.json` server entry (default port **9797**) into `.mcp.json` (Claude Code) and, when `opencode` is an active tool, `config/mcp.wikictl.opencode.json` into `opencode.json`'s `mcp` key (`_merge_wikictl_mcp_opencode`). The `wikictl-*` skills live in `content/skills/` and deploy unconditionally (like `caveman`).
+- **wikictl** (`install.wikictl` / `--wikictl`, default **off**) — file-based AI memory layer. The source lives at `wikictl/` in this repo, fetched at the pinned ref and installed with `uv tool install "${HARNESS_SRC}/wikictl[serve]"`; warns and continues if `uv` is missing. `cli.sh` passes `--install-wikictl` to `harness.py`, which then merges the gated `config/mcp.wikictl.json` server entry (default port **9797**) into `.mcp.json` (Claude Code) and, when `opencode` is an active tool, `config/mcp.wikictl.opencode.json` into `opencode.json`'s `mcp` key (`_merge_wikictl_mcp_opencode`). The single `wikictl` skill lives in `content/skills/` and deploys unconditionally, regardless of `install.wikictl` — it just has nothing to talk to until the CLI/MCP server is installed.
   - Agents using wikictl read the metadata-first protocol from the MCP server itself: scan with `list_entries`/`search_entries` (metadata only), evaluate relevance from `description`/`tags`, then `read_entry` only what's needed. `get_schema` returns the entry metadata contract (field names, types, required/optional, validation rules) and works on an empty wiki.
   - `cli.sh` guarantees `uv`-installed binaries (wikictl, Headroom) resolve on `PATH` immediately after install: `_ensure_uv_tool_path()` exports `uv tool dir --bin` onto `PATH` for the rest of the current run, and a best-effort `uv tool update-shell` (never fails the install) makes them resolvable in later shells too.
-- **custom** (`install.custom`, a `name: <shell command>` map, default `{}`) — arbitrary extra install commands not covered by the four built-ins above (e.g. `speckit: "uv tool install speckit-cli"`). Each entry runs as `bash -c "<command>"` during `install` (never `sync`), warn-and-continue on failure. No already-installed check — commands are expected to be self-idempotent, the same contract mise's `[tasks]` and devbox's `init_hook` use for the same flat name→command shape.
+- **custom** (`install.custom`, a `name: <shell command>` map, default `{}`) — arbitrary extra install commands not covered by the four built-ins above (e.g. `speckit: "uv tool install speckit-cli"`). Each entry runs as `bash -c "<command>"` during `install` (never `sync`), warn-and-continue on failure. No already-installed check — commands are expected to be self-idempotent, the same contract mise's `[tasks]` and devbox's `init_hook` use for the same flat name→command shape. A content repo can ship its own `custom.yaml` with the same `install:` map (merged in, repo wins a name collision) plus its own `skillPaths`/`agentPaths`/`commandPaths` lists (appended after the workspace's own, so a workspace-declared entry wins a same-name collision) — see [Content Repo Format](#content-repo-format).
 
-**Behavior defaults (gated by `.harness-ai/config.yaml` → `behavior.*`, or the matching CLI flag — steer model behavior via AGENTS.md, not a binary install; AGENTS.md is read natively by both Claude Code and OpenCode):**
-
-- **caveman-default** (`behavior.caveman` / `--no-caveman`, default on) — when true and the `caveman` skill is among the tool's installed skills, `harness.py`'s `_update_agents_md()` prepends a "respond in caveman mode from message one" instruction to the managed AGENTS.md block. Inert until the `caveman` skill is actually installed (`installDefaults: true` or a content-repo override providing it). The bundled `statusline.sh` (Claude Code only) shows the caveman indicator by reading this config key directly — it does not parse the session transcript (undocumented, unstable schema across Claude Code releases).
+**Claude Code reads `CLAUDE.md`, not `AGENTS.md`.** When `claude` is an active tool, `harness.py` symlinks `CLAUDE.md` to the scaffolded `AGENTS.md` after writing it (same `_make_symlink` foreign-guard as every other render path) — otherwise the managed instructions never reach it.
 
 **harness.py reads:**
 
@@ -96,19 +94,19 @@ Nothing about harness-ai is vendored into the published feature. `cli.sh` is the
 
 ## Adding an Agent or Skill
 
-Five source kinds, three different workflows (`workspace` reuses the content-repo one, `skillpaths` needs no authoring at all). They merge in this order, later winning: `default` -> `skillpaths` -> each `contentRepos` entry -> `workspace` -> `local`.
+Five source kinds, three different workflows (`workspace` reuses the content-repo one, `frompaths` needs no authoring at all). They merge in this order, later winning: `harness-ai` -> `frompaths` -> each `contentRepos` entry -> `workspace` -> `local`.
 
 | Source | Who edits it | Frontmatter | Steps |
 | --- | --- | --- | --- |
-| `default` | harness-ai's own PRs | in `metadata.yml`, never in the body | see below |
-| a content repo | that repo's own PRs | same shape as `default` — a content repo is structurally identical to `content/` | same steps, against the content repo's own `agents/`/`skills/` tree |
-| `workspace` (a consuming workspace's `.harness-ai/local/`) | that workspace directly | same shape as `default`/a content repo | same steps, against `.harness-ai/local/agents/`/`.harness-ai/local/skills/` — auto-detected, no config entry |
-| `skillpaths` (a directory inside someone else's repo) | nobody here: it is fetched | **inline**, in the source file, passed through verbatim | add a `skillPaths` entry to `.harness-ai/config.yaml`; harness-ai sparse-checks-out the sub-path and adapts it, so there is nothing to register |
+| `harness-ai` | harness-ai's own PRs | in `metadata.yml`, never in the body | see below |
+| a content repo | that repo's own PRs | same shape as `harness-ai` — a content repo is structurally identical to `content/` | same steps, against the content repo's own `agents/`/`skills/` tree |
+| `workspace` (a consuming workspace's `.harness-ai/local/`) | that workspace directly | same shape as `harness-ai`/a content repo | same steps, against `.harness-ai/local/agents/`/`.harness-ai/local/skills/` — auto-detected, no config entry |
+| `frompaths` (a path inside someone else's repo) | nobody here: it is fetched | **inline**, in the source file, passed through verbatim | add a `skillPaths`/`agentPaths`/`commandPaths` entry to `.harness-ai/config.yaml` (or a content repo's `custom.yaml`); harness-ai sparse-checks-out the sub-path and adapts it, so there is nothing to register |
 | `local` (a consuming workspace's `.harness-ai/skills/local/`) | that workspace directly | **inline**, in the file itself | drop a frontmatter'd `SKILL.md`/`<key>.md` under `.harness-ai/skills/local/<key>/` or `.harness-ai/agents/local/<key>.md` — nothing to register, harness-ai discovers it automatically on the next scaffold |
 
-The **"no YAML frontmatter in the body"** rule below is scoped to `default`/content-repo content only — `local` is the opposite on purpose (inline frontmatter, no `metadata.yml`), matching how Claude Code's own Skill/Agent authoring tools write files directly into a workspace.
+The **"no YAML frontmatter in the body"** rule below is scoped to `harness-ai`/content-repo content only — `local` is the opposite on purpose (inline frontmatter, no `metadata.yml`), matching how Claude Code's own Skill/Agent authoring tools write files directly into a workspace.
 
-### Adding an Agent (`default` / content repo)
+### Adding an Agent (`harness-ai` / content repo)
 
 1. Create `content/agents/<key>.md` Markdown body only, no frontmatter
 2. Register it in `content/agents/metadata.yml`:
@@ -130,7 +128,7 @@ OpenCode's `permission` key (`edit`/`bash`/`webfetch`: `allow`/`deny`/`ask`) gat
 
 An optional `agents:` block (name + description only — that's all the always-on `.agents` target renders) can be added alongside `opencode:`/`claude:` if you want the `.agents/agents/<key>.md` rendering to differ from Claude/OpenCode's. Leave it out and it falls back to the `claude:` (or `opencode:`) block's name/description automatically.
 
-### Adding a Skill (`default` / content repo)
+### Adding a Skill (`harness-ai` / content repo)
 
 ### Naming convention
 
@@ -141,7 +139,7 @@ All skills follow one of two prefixes:
 | `developer-*` | Operative used while **building** (language conventions, framework patterns, tool usage) | `developer-python`, `developer-kubernetes`  |
 | `advisor-*`   | Strategic used for **decisions, reviews, design**                                        | `advisor-sre`, `advisor-cloud-architecture` |
 
-Named exceptions with no prefix: `research-scout`, `skill-creator`, `agent-creator` (cross-cutting meta tools), `caveman` (a response-style modifier, not a build/advise skill), and `wikictl`, `wikictl-read`, `wikictl-create`, `wikictl-edit`, `wikictl-mcp` (tool-operation skills for a specific CLI/MCP server, same rationale as `developer-github-cli`).
+Named exceptions with no prefix: cross-cutting meta tools (e.g. `skill-creator`, `agent-creator`), response-style modifiers rather than build/advise skills (e.g. `caveman`), and tool-operation skills for a specific CLI/MCP server, same rationale as `developer-github-cli` (e.g. `wikictl`).
 
 ### Steps
 
@@ -176,7 +174,7 @@ No registration step: drop the file in `local`'s canonical store and every tool 
 .harness-ai/commands/local/ns/my-command.md           # frontmatter inline, invoked as /ns:my-command
 ```
 
-The next `harnessai install`/`sync` discovers it (any file under those two directories) and symlinks it into every active tool's directory. See [README's "Local skills"](README.md#local-skills) for the full model, the migration step from the pre-1.0 `.agents/skills/` layout, and the collision rule with `default`/content-repo keys of the same name.
+The next `harnessai install`/`sync` discovers it (any file under those two directories) and symlinks it into every active tool's directory. See [README's "Local skills"](README.md#local-skills) for the full model, the migration step from the pre-1.0 `.agents/skills/` layout, and the collision rule with `harness-ai`/content-repo keys of the same name.
 
 ### Adding a command
 
@@ -188,7 +186,7 @@ path**, namespace directories included, because that is how the tool addresses t
 | `deep-task-analysis` | `commands/deep-task-analysis.md` | `/deep-task-analysis` |
 | `dev/deep-task-analysis` | `commands/dev/deep-task-analysis.md` | `/dev:deep-task-analysis` |
 
-For `default`/a content repo, register the key in `commands/metadata.yml` (per-tool frontmatter:
+For `harness-ai`/a content repo, register the key in `commands/metadata.yml` (per-tool frontmatter:
 `description`, `argument-hint`, `allowed-tools`, `model`) and put the body, with no frontmatter, in
 `commands/<key>.md`. For `local`, just drop a frontmatter'd file at
 `.harness-ai/commands/local/<key>.md`.
@@ -217,34 +215,13 @@ Plain, single-word subcategories on purpose — the previous `-and-`-joined labe
 
 ### Public skill inventory
 
-| Key                               | Category      | Subcategory  |
-| --------------------------------- | ------------- | ------------- |
-| `developer-python`                | engineering   | coding        |
-| `developer-shell`                 | engineering   | coding        |
-| `developer-javascript`            | engineering   | coding        |
-| `developer-typescript`            | engineering   | coding        |
-| `developer-framework-astro`       | engineering   | coding        |
-| `developer-go`                    | engineering   | coding        |
-| `developer-docker`                | engineering   | coding        |
-| `developer-github-actions`        | engineering   | coding        |
-| `developer-tdd`                   | engineering   | coding        |
-| `developer-diagnosing-bugs`       | engineering   | coding        |
-| `developer-microservices-and-api` | engineering   | architecture  |
-| `developer-terraform`             | engineering   | architecture  |
-| `developer-kubernetes`            | engineering   | architecture  |
-| `developer-github-cli`            | tools         | cli           |
-| `wikictl`                         | tools         | cli           |
-| `wikictl-read`                    | tools         | cli           |
-| `wikictl-create`                  | tools         | cli           |
-| `wikictl-edit`                    | tools         | cli           |
-| `wikictl-mcp`                     | tools         | cli           |
-| `caveman`                         | communication | style         |
-| `skill-creator`                   | meta          | creation      |
-| `agent-creator`                   | meta          | creation      |
+`content/skills/` currently ships one bootstrap-essential skill:
 
-**`developer-github-actions` vs `developer-github-cli` split**: deliberately in different categories despite both being "GitHub". `developer-github-actions` is `engineering/coding` — it's about writing and reviewing workflow YAML, a build artifact like any other config file. `developer-github-cli` is `tools/cli` — it's about operating the `gh` CLI itself (issues, PRs, releases), not producing a build artifact. The same distinction places the `wikictl-*` skills in `tools` rather than `engineering`: they operate a specific CLI/MCP server, they don't encode a language or framework convention.
+| Key       | Category | Subcategory |
+| --------- | -------- | ----------- |
+| `wikictl` | tools    | cli         |
 
-**Why 5 `wikictl-*` skills instead of 1**: every `developer-*` skill is one file per tool/language (`developer-docker`, `developer-kubernetes`, …), but wikictl is split into 5 (`wikictl`, `wikictl-read`, `wikictl-create`, `wikictl-edit`, `wikictl-mcp`). This is deliberate, not an inconsistency to "fix" by merging them: each `wikictl-*` skill is a distinct *workflow* (reading vs. creating vs. editing memory, or the MCP transport specifically) that should trigger independently based on what the agent is actually trying to do, where a `developer-*` skill is one *topic* with internal structure (sections within a single SKILL.md) that all trigger together whenever that tool is in play. `wikictl` itself is the bootstrap/dispatcher skill pointing at the other four.
+Everything else (language/framework conventions, advisory skills, etc.) is expected to arrive through `contentRepos` or `frompaths` rather than being bundled here — keep this list lean; only add a skill directly to `content/skills/` when every consumer of harness-ai should get it unconditionally.
 
 ### SKILL.md rules
 
@@ -254,7 +231,7 @@ Plain, single-word subcategories on purpose — the previous `-and-`-joined labe
 
 ## Content Repo Format
 
-A workspace can point at N named content repos (`contentRepos: [{name, url, ref}, ...]` in `.harness-ai/config.yaml`) — each `name` becomes its own source, merged in config-list order (later wins on key collision), and its own subfolder under the canonical store (`.harness-ai/skills/<name>/`). `name` is required, must be unique, and can't be `default`, `workspace`, or `local` (reserved for the bundled, auto-detected workspace-local, and hand-authored workspace sources, respectively).
+A workspace can point at N named content repos (`contentRepos: [{name, url, ref}, ...]` in `.harness-ai/config.yaml`) — each `name` becomes its own source, merged in config-list order (later wins on key collision), and its own subfolder under the canonical store (`.harness-ai/skills/<name>/`). `name` is required, must be unique, and can't be `harness-ai`, `workspace`, `frompaths`, or `local` (reserved for the bundled, auto-detected workspace-local, path-fetched, and hand-authored workspace sources, respectively).
 
 Each repo, individually, follows the same layout as `content/`:
 
@@ -273,7 +250,8 @@ your-content-repo/
 ├── mcp.json                 # optional: full replacement for config/mcp.json
 ├── opencode.json            # optional: full replacement for config/opencode.json
 ├── paths.yml                # optional: per-tool output paths, merged per-tool-key over the bundled default
-└── agents.harness-ai.md     # optional: appended after the bundled agents.harness-ai.md
+├── agents.harness-ai.md     # optional: appended after the bundled agents.harness-ai.md
+└── custom.yaml               # optional: its own config, merged into the workspace's — see below
 ```
 
 `agents/`, `skills/`, and `agents.harness-ai.md` are what real extensions actually use — see [Extending harness-ai](#extending-harness-ai) below. `hooks/`, `mcp.json`, and `paths.yml` are supported but optional/advanced.
@@ -285,6 +263,22 @@ Key rules:
 - Same key in both repos → content repo wins; absent key → falls back to bundled defaults. This is universal across every content type, `paths.yml` included — a content repo's `paths.yml` can override the output path for one tool while the bundled default still applies to any tool it doesn't mention.
 - `hooks/` and `mcp.json` are full replacements, not merged with defaults
 - `agents.harness-ai.md` is additive: both the bundled and the content-repo copy are appended to the managed AGENTS.md block, not replaced
+
+### `custom.yaml`: a content repo's own config
+
+A content repo can carry a `custom.yaml` at its root, merged into the workspace's own config automatically on every `install`/`sync` (no action needed by the consuming workspace):
+
+```yaml
+install:
+  speckit: "uv tool install speckit-cli"
+skillPaths:
+  - url: https://github.com/some-org/some-skills/tree/main/skills/example
+agentPaths: []
+commandPaths: []
+```
+
+- `install` is a `name: <shell command>` map, same shape and contract as `.harness-ai/config.yaml`'s `install.custom` — merged on top of the workspace's own, repo wins a name collision.
+- `skillPaths`/`agentPaths`/`commandPaths` use the exact same entry shape as the matching config.yaml lists (`url`, optional `name`/`ref`/`path`) — appended after the workspace's own entries, so a workspace-declared entry with the same name wins.
 
 ## Extending harness-ai
 
@@ -328,14 +322,7 @@ A private content repo can override config templates by placing files at these p
 
 ## Updating externally-sourced skills
 
-Some bundled skills track an upstream source recorded as a `ref:` key on the skill's entry in `content/skills/metadata.yml`. Two exist today:
-
-| Skill           | `ref:`                                                                                        | URL shape        |
-| --------------- | ----------------------------------------------------------------------------------------------- | ----------------- |
-| `caveman`       | `https://github.com/JuliusBrussee/caveman`                                                      | raw-fetchable repo root |
-| `skill-creator` | `https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md?plain=1`          | GitHub blob-view URL |
-
-Run `just update-skills` to refresh every skill that declares a `ref:` (or `just update-skills <name>` for one). The recipe normalizes GitHub blob-view URLs (`.../blob/...?plain=1`) to their raw equivalent (`.../raw/...`) so both `ref:` shapes go through the same fetch path, and warns instead of silently skipping a skill whose `ref:` doesn't match either known shape. It never touches `metadata.yml` frontmatter — only the `SKILL.md` body, since frontmatter is generated from `metadata.yml` at scaffold time.
+A bundled skill can track an upstream source by recording a `ref:` key on its entry in `content/skills/metadata.yml` (none do today — `wikictl` is authored here, not mirrored). Run `just update-skills` to refresh every skill that declares one (or `just update-skills <name>` for one). The recipe normalizes GitHub blob-view URLs (`.../blob/...?plain=1`) to their raw equivalent (`.../raw/...`) so both a direct raw-file `ref:` and a GitHub blob-view `ref:` go through the same fetch path, and warns instead of silently skipping a skill whose `ref:` doesn't match either known shape. It never touches `metadata.yml` frontmatter — only the `SKILL.md` body, since frontmatter is generated from `metadata.yml` at scaffold time.
 
 ## Local Testing
 
@@ -364,12 +351,15 @@ The recipes above call `harness.py` directly (via the `{{uv}}` variable) — use
 
 | Fixture             | Starting state                          | Proves                                                                 |
 | -------------------- | ---------------------------------------- | ----------------------------------------------------------------------- |
-| `no-config/`         | no `.harness-ai/config.yaml` at all      | CLI defaults apply, then a starter `config.yaml` is seeded from them   |
+| `no-config/`         | no `.harness-ai/config.yaml` at all      | CLI defaults apply, then a starter `config.yaml` is seeded from them; `CLAUDE.md` symlinks to `AGENTS.md` |
 | `full-config/`       | every key set, all inverted from defaults | the config file alone drives the run (no flags passed) and is left untouched (copy-once) |
 | `partial-config/`    | only one key set (`install.wikictl`)     | that key overrides; every other setting falls through to the CLI's built-in default |
 | `malformed-config/`  | invalid YAML                              | `cli.sh` `die()`s with a clear error and scaffolds nothing             |
 | `custom-tools/`      | multi-entry `install.custom` map, one entry failing | the delimited-blob bridge (`_read_config` → `_load_config` → `_seed_starter_config`'s fd-3 decode → `_install_custom_tools`) round-trips correctly and warn-and-continues on the failing entry |
+| `legacy-content-repo/` | old singular `contentRepo` key           | still works as sugar for a one-entry `contentRepos` list, with a deprecation warning |
 | `wikictl-enabled/`   | `install.wikictl: true`                   | wikictl actually installs, resolves on `PATH`, and `wikictl serve` boots and responds on port 9797 — not just that the config flag parsed |
+
+A few scenarios build their config inline in `run.sh` instead of a static fixture directory (multiple named `contentRepos` merging into separate canonical-store subfolders; `sync --force` picking up a hand-authored local entry; `skillPaths`/`agentPaths`/`commandPaths` fetched from a local `file://` repo; a content repo's own `custom.yaml` contributing `skillPaths` automatically).
 
 Each fixture is copied into a scratch workspace under `tests/e2e/.scratch/` (gitignored, removed at the end of the run), never mutated in place. Add a new fixture by creating `tests/e2e/fixtures/<name>/.harness-ai/config.yaml` (or leaving it out, for a no-config-style case) and a matching block in `run.sh`.
 

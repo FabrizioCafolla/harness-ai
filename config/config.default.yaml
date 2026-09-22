@@ -19,7 +19,7 @@ install:
   #   speckit: "uv tool install speckit-cli"
   custom: {}
 
-# harness.py behavior flags
+# harness.py scaffold flags
 scaffold:
   createFileMCP: true
   createFileHooks: true
@@ -27,30 +27,34 @@ scaffold:
   updateGitignore: true
   installDefaults: true
 
-# Behavioral defaults injected into AGENTS.md at scaffold time (not binary
-# installs — these steer the model's behavior from the first message of a session)
-behavior:
-  caveman: true
-
-# Named content repos merged on top of bundled defaults, in order (later
-# wins on key collision). Each entry needs a unique `name` (not "default" or
-# "local" — those are reserved for the bundled and workspace-local sources).
-# The old singular `contentRepo: {url, ref}` key still works as sugar for a
-# one-entry list (name derived from the URL), with a deprecation warning.
+# Named content repos merged on top of the bundled `harness-ai` source, in
+# order (later wins on key collision). Each entry needs a unique `name` (not
+# "harness-ai", "workspace" or "local" — those are reserved for the bundled,
+# auto-detected workspace-local, and hand-authored sources). The old singular
+# `contentRepo: {url, ref}` key still works as sugar for a one-entry list
+# (name derived from the URL), with a deprecation warning. A content repo can
+# ship its own custom.yaml (install commands + skillPaths/agentPaths/
+# commandPaths) — see AGENTS.md's "Content Repo Format".
 contentRepos: []
 # - name: my-private-content
 #   url: https://github.com/my-org/ai-content
 #   ref: main
 
-# Single skills pulled from a path inside someone else's repo. Point `url` at
-# the directory on GitHub and the ref and sub-path are read straight out of it;
-# a path holding SKILL.md is one skill, otherwise every sub-directory holding
-# one is taken. Merged below the bundled defaults and above `contentRepos`, so
-# a repo you curate always outranks a skill you pulled from elsewhere.
-# `name` (rename), `ref` (override the URL's) and `path` (for a remote whose
-# URL has no /tree/ part) are all optional.
+# A single skill, agent or command pulled from a path inside someone else's
+# repo. Point `url` at the directory (skillPaths) or file (agentPaths/
+# commandPaths) on GitHub and the ref and sub-path are read straight out of
+# it; for skillPaths, a path holding SKILL.md is one skill, otherwise every
+# sub-directory holding one is taken. Merged below the bundled `harness-ai`
+# source and above `contentRepos`, so a repo you curate always outranks
+# something pulled from elsewhere. `name` (rename), `ref` (override the
+# URL's) and `path` (for a remote whose URL has no /tree/ part) are all
+# optional.
 skillPaths: []
 # - url: https://github.com/mattpocock/skills/tree/main/skills/productivity/grill-me
+agentPaths: []
+# - url: https://github.com/my-org/ai-content/blob/main/agents/reviewer.md
+commandPaths: []
+# - url: https://github.com/my-org/ai-content/blob/main/commands/deploy/rollback.md
 
 # Skill-only include/exclude filtering (by category, category.subcategory, or
 # explicit key). Agents are never filtered this way. Empty include means

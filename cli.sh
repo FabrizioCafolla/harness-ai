@@ -47,6 +47,11 @@
 #   --no-headroom                Skip the Headroom CLI install
 #   --wikictl                    Install wikictl (CLI + MCP server + skills; off by default)
 #   --force                      Ignore the .harness-ai/lock hash and re-scaffold
+#
+# skillPaths/agentPaths/commandPaths (a single skill, agent or command
+# fetched from a path inside someone else's repo) and a content repo's own
+# custom.yaml overrides have no CLI flags — config.yaml/custom.yaml only;
+# see config/config.default.yaml.
 #   --interactive                Guided prompt mode
 #   --name <str>                 Extension display name (init-extension only)
 #   -h, --help                   Show this help
@@ -78,7 +83,6 @@ INSTALL_HEADROOM="true"
 INSTALL_WIKICTL="false"
 INSTALL_OPENSPEC="true"
 CUSTOM_TOOLS=""
-CAVEMAN="true"
 SKILLS_INCLUDE_CATEGORIES=""
 SKILLS_INCLUDE_KEYS=""
 SKILLS_EXCLUDE_CATEGORIES=""
@@ -146,7 +150,6 @@ Options:
   --no-headroom           Skip the Headroom CLI install
   --wikictl               Install wikictl (file-based AI memory: CLI + MCP server + skills; off by default)
   --no-openspec           Skip the openspec CLI install (npm; installed by default)
-  --no-caveman            Don't default AGENTS.md to caveman-mode instructions (on by default)
   --force                 Ignore the .harness-ai/lock hash and re-scaffold
   --interactive           Guided prompt mode
   --name <str>            Extension display name (init-extension only)
@@ -197,7 +200,6 @@ run_interactive() {
     _prompt_bool  "installHeadroom"                           "${INSTALL_HEADROOM}"     INSTALL_HEADROOM
     _prompt_bool  "installWikictl"                            "${INSTALL_WIKICTL}"      INSTALL_WIKICTL
     _prompt_bool  "installOpenspec"                           "${INSTALL_OPENSPEC}"     INSTALL_OPENSPEC
-    _prompt_bool  "caveman"                                   "${CAVEMAN}"              CAVEMAN
     _prompt       "contentRepos (comma-separated GitHub URLs, leave blank to skip)" "" CONTENT_REPO
     if [[ -n "${CONTENT_REPO}" ]]; then
         _prompt   "contentRepoRef(s) (comma-separated, matching contentRepos order)" "${CONTENT_REPO_REF}" CONTENT_REPO_REF
@@ -260,7 +262,7 @@ _clone_content_repo() {
 # Multi-repo helpers — build/decode the CFG_CONTENT_REPOS delimited blob
 # (same \x1e/\x1f pattern as CFG_CUSTOM_TOOLS, see _read_config), and resolve
 # each named repo to a local path (clone, or a --content-repo-local-path
-# dev/test override) before invoking harness.py. See design.md D2/D3.
+# dev/test override) before invoking harness.py.
 # ---------------------------------------------------------------------------
 _slugify_url() {
     local url="$1" slug
@@ -293,101 +295,150 @@ _build_content_repos_blob_from_flags() {
     printf '%s' "${blob}"
 }
 
-# Decodes CONTENT_REPOS_BLOB into parallel arrays, name-ordered as configured.
-_decode_skill_paths() {
-    SKILL_PATH_NAMES=(); SKILL_PATH_URLS=(); SKILL_PATH_REFS=(); SKILL_PATH_SUBPATHS=()
-    [[ -z "${CFG_SKILL_PATHS:-}" ]] && return 0
+# Decodes one CFG_*_PATHS blob (\x1e-separated entries, \x1f-separated
+# name/url/ref/subpath fields) into four parallel arrays, name-ordered as
+# configured. Shared by skillPaths/agentPaths/commandPaths via namerefs.
+_decode_path_entries() {
+    local blob="$1"
+    local -n _names="$2" _urls="$3" _refs="$4" _subpaths="$5"
+    _names=(); _urls=(); _refs=(); _subpaths=()
+    [[ -z "${blob}" ]] && return 0
     local entries=() entry rest
-    mapfile -d $'\x1e' -t entries <<<"${CFG_SKILL_PATHS}"
+    mapfile -d $'\x1e' -t entries <<<"${blob}"
     for entry in "${entries[@]}"; do
         entry="${entry%$'\n'}"
         [[ -z "${entry}" ]] && continue
-        SKILL_PATH_NAMES+=("${entry%%$'\x1f'*}");  rest="${entry#*$'\x1f'}"
-        SKILL_PATH_URLS+=("${rest%%$'\x1f'*}");    rest="${rest#*$'\x1f'}"
-        SKILL_PATH_REFS+=("${rest%%$'\x1f'*}")
-        SKILL_PATH_SUBPATHS+=("${rest#*$'\x1f'}")
+        _names+=("${entry%%$'\x1f'*}");  rest="${entry#*$'\x1f'}"
+        _urls+=("${rest%%$'\x1f'*}");    rest="${rest#*$'\x1f'}"
+        _refs+=("${rest%%$'\x1f'*}")
+        _subpaths+=("${rest#*$'\x1f'}")
     done
 }
 
-# Fetches each skillPaths entry with a sparse checkout (only the sub-path, not
-# the whole repo) and expands it into `--skill-path KEY=DIR` args for
-# harness.py. A path holding SKILL.md is one skill; otherwise every immediate
-# sub-directory that holds one becomes its own skill.
-_resolve_skill_paths() {
-    SKILL_PATH_ARGS=(); SKILL_PATH_KEYS=()
-    _decode_skill_paths
-    [[ ${#SKILL_PATH_NAMES[@]} -eq 0 ]] && return 0
+_decode_skill_paths()   { _decode_path_entries "${CFG_SKILL_PATHS:-}"   SKILL_PATH_NAMES   SKILL_PATH_URLS   SKILL_PATH_REFS   SKILL_PATH_SUBPATHS; }
+_decode_agent_paths()   { _decode_path_entries "${CFG_AGENT_PATHS:-}"   AGENT_PATH_NAMES   AGENT_PATH_URLS   AGENT_PATH_REFS   AGENT_PATH_SUBPATHS; }
+_decode_command_paths() { _decode_path_entries "${CFG_COMMAND_PATHS:-}" COMMAND_PATH_NAMES COMMAND_PATH_URLS COMMAND_PATH_REFS COMMAND_PATH_SUBPATHS; }
 
-    local i name url ref subpath dest root child found
-    for i in "${!SKILL_PATH_NAMES[@]}"; do
-        name="${SKILL_PATH_NAMES[$i]}"; url="${SKILL_PATH_URLS[$i]}"
-        ref="${SKILL_PATH_REFS[$i]}";   subpath="${SKILL_PATH_SUBPATHS[$i]}"
+# Fetches every configured skillPaths/agentPaths/commandPaths entry with a
+# sparse checkout (only the sub-path, not the whole repo) and expands it into
+# `--skill-path`/`--agent-path`/`--command-path KEY=PATH` args for harness.py.
+# For a skill, a sub-path holding SKILL.md is one skill, otherwise every
+# immediate sub-directory that holds one becomes its own skill. For an agent
+# or a command, the sub-path is either the target Markdown file itself, or a
+# directory holding exactly one.
+_resolve_paths() {
+    local kind="$1" flag="$2"
+    local -n _names="$3" _urls="$4" _refs="$5" _subpaths="$6"
+    [[ ${#_names[@]} -eq 0 ]] && return 0
+
+    local i name url ref subpath dest root child found md_files
+    for i in "${!_names[@]}"; do
+        name="${_names[$i]}"; url="${_urls[$i]}"
+        ref="${_refs[$i]}";   subpath="${_subpaths[$i]}"
         # Indexed: two entries can legitimately share a name (and one of them
         # then loses on the dedupe below), but cloning both into the same
         # directory made the second fail and blame the network for it.
-        dest="${TEMP_DIR}/skill-path/${i}-${name}"
-        info "Fetching skill path '${name}' (ref: ${ref})..."
+        dest="${TEMP_DIR}/${kind}-path/${i}-${name}"
+        info "Fetching ${kind}Paths entry '${name}' (ref: ${ref})..."
         if ! git clone --quiet --depth 1 --filter=blob:none --sparse \
             --branch "${ref}" "$(_auth_url "${url}")" "${dest}" 2>/dev/null; then
-            warn "skillPaths '${name}': clone failed (${url}, ref ${ref}), skipping"
+            warn "${kind}Paths '${name}': clone failed (${url}, ref ${ref}), skipping"
             continue
         fi
         if [[ -n "${subpath}" ]] && ! git -C "${dest}" sparse-checkout set --no-cone "${subpath}" 2>/dev/null; then
-            warn "skillPaths '${name}': sub-path '${subpath}' not found in ${url}, skipping"
+            warn "${kind}Paths '${name}': sub-path '${subpath}' not found in ${url}, skipping"
             continue
         fi
         root="${dest}${subpath:+/${subpath}}"
-        # `found` tracks whether a SKILL.md was there at all, not whether it was
-        # kept: a skill dropped by the dedupe below already reported itself, and
-        # claiming the path holds nothing on top of that is simply false.
+        # `found` tracks whether something resolvable was there at all, not
+        # whether it was kept: an entry dropped by the dedupe below already
+        # reported itself, and claiming the path holds nothing on top of
+        # that is simply false.
         found=0
-        if [[ -f "${root}/SKILL.md" ]]; then
-            found=1
-            _add_skill_path_arg "${name}" "${root}" || true
-        else
-            for child in "${root}"/*/; do
-                [[ -f "${child}SKILL.md" ]] || continue
-                child="${child%/}"
+        if [[ "${kind}" == "skill" ]]; then
+            if [[ -f "${root}/SKILL.md" ]]; then
                 found=1
-                _add_skill_path_arg "$(basename "${child}")" "${child}" || true
-            done
+                _add_path_arg "${flag}" "${name}" "${root}" || true
+            else
+                for child in "${root}"/*/; do
+                    [[ -f "${child}SKILL.md" ]] || continue
+                    child="${child%/}"
+                    found=1
+                    _add_path_arg "${flag}" "$(basename "${child}")" "${child}" || true
+                done
+            fi
+        else
+            if [[ -f "${root}" ]]; then
+                found=1
+                _add_path_arg "${flag}" "${name}" "${root}" || true
+            elif [[ -d "${root}" ]]; then
+                mapfile -t md_files < <(find "${root}" -maxdepth 1 -name '*.md' -type f)
+                if [[ ${#md_files[@]} -eq 1 ]]; then
+                    found=1
+                    _add_path_arg "${flag}" "${name}" "${md_files[0]}" || true
+                elif [[ ${#md_files[@]} -gt 1 ]]; then
+                    warn "${kind}Paths '${name}': '${subpath}' has more than one .md file, set 'path' to the exact file"
+                fi
+            fi
         fi
-        # Counted per entry: a shared counter stopped warning as soon as any
-        # earlier entry had resolved something.
         if [[ ${found} -eq 0 ]]; then
-            warn "skillPaths '${name}': no SKILL.md at '${subpath:-repo root}' nor in its sub-directories, skipping"
+            warn "${kind}Paths '${name}': no usable file at '${subpath:-repo root}', skipping"
         fi
     done
 }
 
-# Appends one resolved skill, refusing a key a previous entry already claimed:
-# two entries silently resolving to the same name would leave whichever came
-# last, with no sign the other was dropped.
-_add_skill_path_arg() {
-    local key="$1" dir="$2" seen
-    for seen in "${SKILL_PATH_KEYS[@]:-}"; do
+_resolve_skill_paths()   { SKILL_PATH_ARGS=();   SKILL_PATH_KEYS=();   _decode_skill_paths;   _resolve_paths skill   --skill-path   SKILL_PATH_NAMES   SKILL_PATH_URLS   SKILL_PATH_REFS   SKILL_PATH_SUBPATHS; }
+_resolve_agent_paths()   { AGENT_PATH_ARGS=();   AGENT_PATH_KEYS=();   _decode_agent_paths;   _resolve_paths agent   --agent-path   AGENT_PATH_NAMES   AGENT_PATH_URLS   AGENT_PATH_REFS   AGENT_PATH_SUBPATHS; }
+_resolve_command_paths() { COMMAND_PATH_ARGS=(); COMMAND_PATH_KEYS=(); _decode_command_paths; _resolve_paths command --command-path COMMAND_PATH_NAMES COMMAND_PATH_URLS COMMAND_PATH_REFS COMMAND_PATH_SUBPATHS; }
+
+# Appends one resolved skill/agent/command, refusing a key a previous entry
+# already claimed: two entries silently resolving to the same name would
+# leave whichever came last, with no sign the other was dropped. Reads/writes
+# the *_ARGS/*_KEYS pair matching `flag` (SKILL_PATH_*, AGENT_PATH_*, or
+# COMMAND_PATH_*) via nameref.
+_add_path_arg() {
+    local flag="$1" key="$2" path="$3"
+    local varname
+    case "${flag}" in
+        --skill-path)   varname="SKILL_PATH" ;;
+        --agent-path)   varname="AGENT_PATH" ;;
+        --command-path) varname="COMMAND_PATH" ;;
+    esac
+    local -n _keys="${varname}_KEYS" _args="${varname}_ARGS"
+    local seen
+    for seen in "${_keys[@]:-}"; do
         if [[ "${seen}" == "${key}" ]]; then
-            warn "skillPaths: skill '${key}' resolved more than once, keeping the first"
+            warn "${flag}: '${key}' resolved more than once, keeping the first"
             return 1
         fi
     done
-    SKILL_PATH_KEYS+=("${key}")
-    SKILL_PATH_ARGS+=(--skill-path "${key}=${dir}")
+    _keys+=("${key}")
+    _args+=("${flag}" "${key}=${path}")
 }
 
-# One SHA standing for every configured skillPaths entry, resolved with
-# ls-remote so the sync fast path can tell "upstream moved" from "nothing
-# changed" without fetching. Empty when nothing is configured, or when any
-# entry fails to resolve: a partial hash would report "no changes" for a skill
-# it simply could not reach.
-_skill_paths_sha() {
-    [[ ${#SKILL_PATH_NAMES[@]} -eq 0 ]] && { echo ""; return 0; }
-    local i sha out=""
-    for i in "${!SKILL_PATH_NAMES[@]}"; do
-        sha=$(git ls-remote "$(_auth_url "${SKILL_PATH_URLS[$i]}")" "${SKILL_PATH_REFS[$i]}" 2>/dev/null | head -1 | cut -f1)
-        [[ -z "${sha}" ]] && { echo ""; return 0; }
-        out+="${SKILL_PATH_NAMES[$i]}:${SKILL_PATH_SUBPATHS[$i]}:${sha};"
+# One SHA standing for every configured skillPaths/agentPaths/commandPaths
+# entry combined, resolved with ls-remote so the sync fast path can tell
+# "upstream moved" from "nothing changed" without fetching. Empty when
+# nothing is configured, or when any entry fails to resolve: a partial hash
+# would report "no changes" for content it simply could not reach.
+_from_paths_sha() {
+    local out="" i sha
+    local -A kind_arrays=(
+        [skill]="SKILL_PATH"
+        [agent]="AGENT_PATH"
+        [command]="COMMAND_PATH"
+    )
+    local kind varname
+    for kind in "${!kind_arrays[@]}"; do
+        varname="${kind_arrays[$kind]}"
+        local -n names="${varname}_NAMES" urls="${varname}_URLS" refs="${varname}_REFS" subpaths="${varname}_SUBPATHS"
+        for i in "${!names[@]}"; do
+            sha=$(git ls-remote "$(_auth_url "${urls[$i]}")" "${refs[$i]}" 2>/dev/null | head -1 | cut -f1)
+            [[ -z "${sha}" ]] && { echo ""; return 0; }
+            out+="${kind}:${names[$i]}:${subpaths[$i]}:${sha};"
+        done
     done
+    [[ -z "${out}" ]] && { echo ""; return 0; }
     printf '%s' "${out}" | sha256sum | cut -d' ' -f1
 }
 
@@ -478,7 +529,7 @@ _resolve_content_repo_shas() {
 }
 
 # Builds `--content-repos name=path` args for every resolved repo, for
-# harness.py's argparse (task 2.4/3.11).
+# harness.py's argparse.
 _content_repos_args() {
     local i
     for i in "${!CONTENT_REPO_NAMES[@]}"; do
@@ -523,7 +574,6 @@ while [[ $# -gt 0 ]]; do
         --no-headroom)        INSTALL_HEADROOM="false";   shift ;;
         --wikictl)            INSTALL_WIKICTL="true";     shift ;;
         --no-openspec)        INSTALL_OPENSPEC="false";   shift ;;
-        --no-caveman)         CAVEMAN="false";            shift ;;
         --force)              FORCE="true";               shift ;;
         --interactive)        INTERACTIVE="true";          shift ;;
         --name)                EXTENSION_NAME="$2";        shift 2 ;;
@@ -546,7 +596,7 @@ fi
 # has (agents/ + skills/, each with metadata.yml + one placeholder body, plus
 # a top-level agents.harness-ai.md and README) — not the fully-documented
 # format (hooks/, mcp.json, paths.yml are optional/advanced and are noted,
-# not scaffolded; see design.md D5). Pure bash, no git/python dependency, so
+# not scaffolded). Pure bash, no git/python dependency, so
 # it dispatches before the dependency checks below.
 # ---------------------------------------------------------------------------
 cmd_init_extension() {
@@ -765,15 +815,11 @@ for key, var in (
 # CFG_* scalar bridge above can't carry. Serialized as one delimited blob
 # (record separator \x1e between entries, unit separator \x1f between
 # name/command) and decoded in _load_config. Kept to exactly these two
-# places (here and _load_config's consumer) — see design.md D2.
+# places (here and _load_config's consumer).
 custom = install.get("custom") or {}
 if custom:
     blob = "\x1e".join(f"{name}\x1f{command}" for name, command in custom.items())
     emit("CFG_CUSTOM_TOOLS", blob)
-
-behavior = cfg.get("behavior") or {}
-if "caveman" in behavior:
-    emit("CFG_CAVEMAN", "true" if behavior["caveman"] else "false")
 
 scaffold = cfg.get("scaffold") or {}
 for key, var in (
@@ -788,11 +834,11 @@ for key, var in (
 
 # contentRepos (a list) is the current shape; the old singular contentRepo
 # is read as sugar for a one-entry list (name derived from the URL slug),
-# with a deprecation warning — see design.md D3. Either way the result is
-# emitted as one CFG_CONTENT_REPOS delimited blob (record separator \x1e
-# between repos, unit separator \x1f between name/url/ref), decoded in
-# _load_config — same pattern as CFG_CUSTOM_TOOLS.
-RESERVED_SOURCE_NAMES = {"default", "local", "workspace", "skillpaths"}
+# with a deprecation warning. Either way the result is emitted as one
+# CFG_CONTENT_REPOS delimited blob (record separator \x1e between repos,
+# unit separator \x1f between name/url/ref), decoded in _load_config — same
+# pattern as CFG_CUSTOM_TOOLS.
+RESERVED_SOURCE_NAMES = {"harness-ai", "local", "workspace", "frompaths"}
 
 
 def _slugify(url):
@@ -835,34 +881,44 @@ elif (cfg.get("contentRepo") or {}).get("url"):
         file=sys.stderr,
     )
 
-# skillPaths: point at a directory inside any git repo and take the skill(s)
-# there. Parsed here rather than in bash because a GitHub "tree" URL carries the
-# ref and the sub-path inside it, and splitting that with shell parameter
+# skillPaths/agentPaths/commandPaths: each entry points at a directory or
+# file inside any git repo and takes the skill/agent/command there. Parsed
+# here rather than in bash because a GitHub "tree"/"blob" URL carries the ref
+# and the sub-path inside it, and splitting that with shell parameter
 # expansion is where this would quietly go wrong.
-skill_paths = []
-for entry in (cfg.get("skillPaths") or []):
-    entry = entry or {}
-    url = entry.get("url")
-    if not url:
-        sys.exit(f"skillPaths entry missing required 'url' field: {entry}")
-    url = url.rstrip("/")
-    ref, subpath = "", ""
-    for marker in ("/tree/", "/blob/"):
-        if marker in url:
-            base, _, tail = url.partition(marker)
-            parts = tail.split("/")
-            url, ref, subpath = base, parts[0], "/".join(parts[1:])
-            break
-    # An explicit field always wins over what the URL happened to encode, and
-    # `path` is the only way to point inside a repo whose URL has no /tree/ part
-    # (a self-hosted remote, a file:// checkout).
-    ref = entry.get("ref") or ref or "main"
-    subpath = (entry.get("path") or subpath or "").strip("/")
-    name = entry.get("name") or (subpath.rsplit("/", 1)[-1] if subpath else _slugify(url))
-    skill_paths.append((name, url, ref, subpath))
+def _parse_path_entries(entries):
+    parsed = []
+    for entry in entries or []:
+        entry = entry or {}
+        url = entry.get("url")
+        if not url:
+            sys.exit(f"path entry missing required 'url' field: {entry}")
+        url = url.rstrip("/")
+        ref, subpath = "", ""
+        for marker in ("/tree/", "/blob/"):
+            if marker in url:
+                base, _, tail = url.partition(marker)
+                parts = tail.split("/")
+                url, ref, subpath = base, parts[0], "/".join(parts[1:])
+                break
+        # An explicit field always wins over what the URL happened to encode,
+        # and `path` is the only way to point inside a repo whose URL has no
+        # /tree/ part (a self-hosted remote, a file:// checkout).
+        ref = entry.get("ref") or ref or "main"
+        subpath = (entry.get("path") or subpath or "").strip("/")
+        name = entry.get("name") or (subpath.rsplit("/", 1)[-1].removesuffix(".md") if subpath else _slugify(url))
+        parsed.append((name, url, ref, subpath))
+    return parsed
 
-if skill_paths:
-    emit("CFG_SKILL_PATHS", "\x1e".join(f"{n}\x1f{u}\x1f{r}\x1f{s}" for n, u, r, s in skill_paths))
+
+for cfg_key, var in (
+    ("skillPaths", "CFG_SKILL_PATHS"),
+    ("agentPaths", "CFG_AGENT_PATHS"),
+    ("commandPaths", "CFG_COMMAND_PATHS"),
+):
+    entries = _parse_path_entries(cfg.get(cfg_key))
+    if entries:
+        emit(var, "\x1e".join(f"{n}\x1f{u}\x1f{r}\x1f{s}" for n, u, r, s in entries))
 
 if repos:
     blob = "\x1e".join(f"{name}\x1f{url}\x1f{ref}" for name, url, ref in repos)
@@ -912,7 +968,6 @@ _load_config() {
     INSTALL_HEADROOM="${CFG_INSTALL_HEADROOM:-${INSTALL_HEADROOM}}"
     INSTALL_WIKICTL="${CFG_INSTALL_WIKICTL:-${INSTALL_WIKICTL}}"
     INSTALL_OPENSPEC="${CFG_INSTALL_OPENSPEC:-${INSTALL_OPENSPEC}}"
-    CAVEMAN="${CFG_CAVEMAN:-${CAVEMAN}}"
     CREATE_FILE_MCP="${CFG_CREATE_FILE_MCP:-${CREATE_FILE_MCP}}"
     CREATE_FILE_HOOKS="${CFG_CREATE_FILE_HOOKS:-${CREATE_FILE_HOOKS}}"
     CREATE_FILE_SETTING="${CFG_CREATE_FILE_SETTING:-${CREATE_FILE_SETTING}}"
@@ -926,6 +981,8 @@ _load_config() {
     SKILLS_EXCLUDE_KEYS="${CFG_SKILLS_EXCLUDE_KEYS:-${SKILLS_EXCLUDE_KEYS}}"
     _decode_content_repos
     _decode_skill_paths
+    _decode_agent_paths
+    _decode_command_paths
 }
 
 # Copy-once starter config, seeded from the resolved (pre-YAML) fallback
@@ -949,7 +1006,7 @@ _seed_starter_config() {
     # positional args untouched.
     "${PYTHON}" - "${template}" "${config_file}" \
         "${TOOLS}" "${INSTALL_RTK}" "${INSTALL_HEADROOM}" "${INSTALL_WIKICTL}" \
-        "${INSTALL_OPENSPEC}" "${CAVEMAN}" \
+        "${INSTALL_OPENSPEC}" \
         "${CREATE_FILE_MCP}" "${CREATE_FILE_HOOKS}" "${CREATE_FILE_SETTING}" \
         "${UPDATE_GITIGNORE}" "${INSTALL_DEFAULTS}" \
         "${SKILLS_INCLUDE_CATEGORIES}" "${SKILLS_INCLUDE_KEYS}" \
@@ -960,9 +1017,9 @@ import sys
 
 import yaml
 
-(template_path, out_path, tools, i_rtk, i_hr, i_wc, i_os, caveman,
+(template_path, out_path, tools, i_rtk, i_hr, i_wc, i_os,
  mcp, hooks, settings, gi, defaults,
- skills_inc_cats, skills_inc_keys, skills_exc_cats, skills_exc_keys) = sys.argv[1:18]
+ skills_inc_cats, skills_inc_keys, skills_exc_cats, skills_exc_keys) = sys.argv[1:17]
 
 custom_blob = os.fdopen(3).read().rstrip("\n")
 content_repos_blob = os.fdopen(4).read().rstrip("\n")
@@ -989,7 +1046,6 @@ cfg["install"]["custom"] = (
     if custom_blob
     else {}
 )
-cfg["behavior"]["caveman"] = b(caveman)
 cfg["scaffold"]["createFileMCP"] = b(mcp)
 cfg["scaffold"]["createFileHooks"] = b(hooks)
 cfg["scaffold"]["createFileSetting"] = b(settings)
@@ -1083,9 +1139,8 @@ PYEOF
 # uv's own tool-bin dir, which may not be on PATH yet for this same script
 # run, so `command -v` right after installing (or a later install step in
 # this same run) can miss it. Called once in cmd_install before any installs.
-# See design.md D6 — this handles the *same-run* symptom; `uv tool
-# update-shell` (called once after the install block) handles the *new-shell*
-# symptom.
+# `uv tool update-shell` (called once after the install block) handles the
+# *new-shell* symptom; this handles the *same-run* one.
 # ---------------------------------------------------------------------------
 _ensure_uv_tool_path() {
     command -v uv &>/dev/null || return 0
@@ -1157,53 +1212,115 @@ _install_openspec() {
 }
 
 # ---------------------------------------------------------------------------
-# Content-repo custom tools (optional) — a content repo can ship its own
-# custom.yaml (same flat name->command shape as install.custom) so its
-# commands travel with the repo into every workspace that extends it,
-# instead of being copy-pasted into each workspace's config.yaml. Merged
-# on top of the workspace's own CUSTOM_TOOLS blob; on a name collision the
-# content repo's command wins (it is merged in last).
+# Content-repo own config (optional) — a content repo can ship its own
+# custom.yaml:
+#   install: {name: command, ...}                same shape as install.custom
+#   skillPaths/agentPaths/commandPaths: [{url, ...}, ...]   same shape as
+#     the matching config.yaml lists
+# so both travel with the repo into every workspace that extends it, instead
+# of being copy-pasted into each workspace's config.yaml. `install` entries
+# are merged on top of the workspace's own CUSTOM_TOOLS blob (repo wins a
+# name collision, merged in last); path-list entries are appended after the
+# workspace's own (root config wins a same-name collision — dedup happens
+# where they're resolved, first occurrence keeps the path).
 # ---------------------------------------------------------------------------
-_merge_content_custom() {
+_merge_content_config() {
     local content_repo_dir="$1"
     local custom_file="${content_repo_dir}/custom.yaml"
     [[ -f "${custom_file}" ]] || return 0
 
-    local merged
-    merged="$("${PYTHON}" - "${custom_file}" 3<<<"${CUSTOM_TOOLS}" <<'PYEOF'
+    # Four separate output files (not stdout lines): an install command can
+    # itself contain literal newlines and braces (multi-line shell, jq), so
+    # anything relying on line- or brace-delimited framing would corrupt it.
+    local out_dir="${TEMP_DIR}/merge-content-config"
+    mkdir -p "${out_dir}"
+
+    if ! "${PYTHON}" - "${custom_file}" "${out_dir}" \
+        3<<<"${CUSTOM_TOOLS}" 4<<<"${CFG_SKILL_PATHS:-}" 5<<<"${CFG_AGENT_PATHS:-}" 6<<<"${CFG_COMMAND_PATHS:-}" <<'PYEOF'
 import os
+import re
 import sys
 
 import yaml
 
-custom_file = sys.argv[1]
-base_blob = os.fdopen(3).read().rstrip("\n")
+custom_file, out_dir = sys.argv[1:3]
+base_custom = os.fdopen(3).read().rstrip("\n")
+base_paths = {
+    "skillPaths": os.fdopen(4).read().rstrip("\n"),
+    "agentPaths": os.fdopen(5).read().rstrip("\n"),
+    "commandPaths": os.fdopen(6).read().rstrip("\n"),
+}
+
+with open(custom_file) as f:
+    cfg = yaml.safe_load(f) or {}
+
+
+def _slugify(url):
+    name = url.rstrip("/").rsplit("/", 1)[-1]
+    if name.endswith(".git"):
+        name = name[: -len(".git")]
+    name = re.sub(r"[^a-zA-Z0-9]+", "-", name).strip("-").lower()
+    return name or "content-repo"
+
+
+def _parse_path_entries(entries):
+    parsed = []
+    for entry in entries or []:
+        entry = entry or {}
+        url = entry.get("url")
+        if not url:
+            sys.exit(f"path entry missing required 'url' field: {entry}")
+        url = url.rstrip("/")
+        ref, subpath = "", ""
+        for marker in ("/tree/", "/blob/"):
+            if marker in url:
+                base, _, tail = url.partition(marker)
+                parts = tail.split("/")
+                url, ref, subpath = base, parts[0], "/".join(parts[1:])
+                break
+        ref = entry.get("ref") or ref or "main"
+        subpath = (entry.get("path") or subpath or "").strip("/")
+        default_name = subpath.rsplit("/", 1)[-1].removesuffix(".md") if subpath else _slugify(url)
+        name = entry.get("name") or default_name
+        parsed.append((name, url, ref, subpath))
+    return parsed
+
 
 merged = {}
-for entry in base_blob.split("\x1e"):
+for entry in base_custom.split("\x1e"):
     if not entry:
         continue
     name, command = entry.split("\x1f", 1)
     merged[name] = command
-
-with open(custom_file) as f:
-    overrides = yaml.safe_load(f) or {}
-for name, command in overrides.items():
+for name, command in (cfg.get("install") or {}).items():
     merged[name] = command
+sep = "\x1e"
+with open(os.path.join(out_dir, "install"), "w") as f:
+    f.write(sep.join(f"{n}\x1f{c}" for n, c in merged.items()))
 
-print("\x1e".join(f"{name}\x1f{command}" for name, command in merged.items()))
+for cfg_key in ("skillPaths", "agentPaths", "commandPaths"):
+    added = sep.join(f"{n}\x1f{u}\x1f{r}\x1f{s}" for n, u, r, s in _parse_path_entries(cfg.get(cfg_key)))
+    combined = sep.join(part for part in (base_paths[cfg_key], added) if part)
+    with open(os.path.join(out_dir, cfg_key), "w") as f:
+        f.write(combined)
 PYEOF
-    )" || die "Failed to parse ${custom_file} — check it is valid YAML."
+    then
+        die "Failed to parse ${custom_file} — check it is valid YAML."
+    fi
 
-    CUSTOM_TOOLS="${merged}"
+    CUSTOM_TOOLS="$(<"${out_dir}/install")"
+    CFG_SKILL_PATHS="$(<"${out_dir}/skillPaths")"
+    CFG_AGENT_PATHS="$(<"${out_dir}/agentPaths")"
+    CFG_COMMAND_PATHS="$(<"${out_dir}/commandPaths")"
+    rm -rf "${out_dir}"
 }
 
 # ---------------------------------------------------------------------------
 # Custom tools (optional) — arbitrary extra install commands declared under
-# install.custom in config.yaml (merged with the content repo's custom.yaml,
-# see _merge_content_custom above). No already-installed check (see design.md
-# D3): commands are expected to be self-idempotent, same contract mise's
-# [tasks] and devbox's init_hook use for the same flat name->command shape.
+# install.custom in config.yaml (merged with each content repo's own
+# custom.yaml, see _merge_content_config above). No already-installed check:
+# commands are expected to be self-idempotent, same contract mise's [tasks]
+# and devbox's init_hook use for the same flat name->command shape.
 # ---------------------------------------------------------------------------
 _install_custom_tools() {
     # mapfile, not `read -a`: `read` stops at the first newline regardless of
@@ -1242,9 +1359,11 @@ _run_scaffold() {
         [[ -n "${line}" ]] && extra_args+=("${line}")
     done < <(_content_repos_args)
     extra_args+=("${SKILL_PATH_ARGS[@]+"${SKILL_PATH_ARGS[@]}"}")
-    local sp_sha
-    sp_sha="$(_skill_paths_sha)"
-    [[ -n "${sp_sha}" ]] && extra_args+=(--skill-paths-sha "${sp_sha}")
+    extra_args+=("${AGENT_PATH_ARGS[@]+"${AGENT_PATH_ARGS[@]}"}")
+    extra_args+=("${COMMAND_PATH_ARGS[@]+"${COMMAND_PATH_ARGS[@]}"}")
+    local fp_sha
+    fp_sha="$(_from_paths_sha)"
+    [[ -n "${fp_sha}" ]] && extra_args+=(--from-paths-sha "${fp_sha}")
 
     "${PYTHON}" "${HARNESS_SRC}/harness.py" \
         --workspace               "${WORKSPACE}" \
@@ -1255,7 +1374,6 @@ _run_scaffold() {
         --update-gitignore        "${UPDATE_GITIGNORE}" \
         --install-defaults        "${INSTALL_DEFAULTS}" \
         --install-wikictl         "${INSTALL_WIKICTL}" \
-        --behavior-caveman        "${CAVEMAN}" \
         --skills-include-categories "${SKILLS_INCLUDE_CATEGORIES}" \
         --skills-include-keys       "${SKILLS_INCLUDE_KEYS}" \
         --skills-exclude-categories "${SKILLS_EXCLUDE_CATEGORIES}" \
@@ -1286,14 +1404,17 @@ cmd_install() {
     # Clones each configured repo (or uses a --content-repo-local-path
     # override) into CONTENT_REPO_RESOLVED_PATHS, parallel to CONTENT_REPO_NAMES.
     _resolve_content_repos
-    _resolve_skill_paths
-    # Custom tools run after every content repo is available so their
-    # custom.yaml (if any) is merged into CUSTOM_TOOLS, in config order —
-    # later repos' commands win on name collision.
+    # Each content repo's own custom.yaml (if any) is merged into
+    # CUSTOM_TOOLS and the CFG_*_PATHS blobs, in config order — later repos
+    # win a name collision on install commands. Must run before the
+    # *_paths resolve calls below, so a repo-declared path entry gets fetched too.
     local repo_path
     for repo_path in "${CONTENT_REPO_RESOLVED_PATHS[@]:-}"; do
-        [[ -n "${repo_path}" ]] && _merge_content_custom "${repo_path}"
+        [[ -n "${repo_path}" ]] && _merge_content_config "${repo_path}"
     done
+    _resolve_skill_paths
+    _resolve_agent_paths
+    _resolve_command_paths
     [[ -n "${CUSTOM_TOOLS}" ]] && _install_custom_tools
 
     # The lock hash is identity-based (harness-ai HEAD SHA + content repo SHAs),
@@ -1320,8 +1441,7 @@ cmd_sync() {
 
     # --force / --local-path bypass the hash fast-path entirely, same override
     # cmd_install applies before scaffolding: the lock hash is identity-based
-    # (HEAD SHA), so it can't see uncommitted local edits, and previously
-    # cmd_sync ignored both flags outright and always trusted the SHA check.
+    # (HEAD SHA), so it can't see uncommitted local edits.
     if [[ "${FORCE}" == "true" || -n "${LOCAL_PATH}" ]]; then
         # Skipping the ls-remote fast path is not enough: harness.py re-reads
         # .harness-ai/lock itself and returns "no changes detected" on a match,
@@ -1349,9 +1469,15 @@ cmd_sync() {
             for s in "${CONTENT_REPO_SHAS[@]:-}"; do
                 [[ -n "${s}" ]] && sha_args+=(--content-repo-sha "${s}")
             done
-            local sp_sha
-            sp_sha="$(_skill_paths_sha)"
-            [[ -n "${sp_sha}" ]] && sha_args+=(--skill-paths-sha "${sp_sha}")
+            # Root-config-declared entries only: a content repo's own
+            # skillPaths/agentPaths/commandPaths aren't knowable without
+            # cloning it first, which this fast path deliberately skips.
+            # When a repo declares any, this digest is incomplete and
+            # --check-only reports stale, falling through to the full run
+            # below — never a false "no changes".
+            local fp_sha
+            fp_sha="$(_from_paths_sha)"
+            [[ -n "${fp_sha}" ]] && sha_args+=(--from-paths-sha "${fp_sha}")
             if "${PYTHON}" "${HARNESS_SRC}/harness.py" \
                 --workspace "${WORKSPACE}" \
                 --check-only \
@@ -1362,11 +1488,13 @@ cmd_sync() {
     fi
 
     _resolve_content_repos
-    _resolve_skill_paths
     local repo_path
     for repo_path in "${CONTENT_REPO_RESOLVED_PATHS[@]:-}"; do
-        [[ -n "${repo_path}" ]] && _merge_content_custom "${repo_path}"
+        [[ -n "${repo_path}" ]] && _merge_content_config "${repo_path}"
     done
+    _resolve_skill_paths
+    _resolve_agent_paths
+    _resolve_command_paths
     [[ -n "${CUSTOM_TOOLS}" ]] && _install_custom_tools
 
     echo ""

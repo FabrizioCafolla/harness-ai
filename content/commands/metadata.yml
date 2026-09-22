@@ -8,25 +8,9 @@ default:
   claude:
     metadata:
       author: Fabrizio Cafolla
-      version: "1.0"
+      version: '1.0'
   # Minimal on purpose, mirroring skills/agents: when an entry has no explicit
   # `agents:` block the profile falls back to the claude block's name+description.
   agents:
 
 commands:
-  dev/deep-task-analysis:
-    claude:
-      name: deep-task-analysis
-      description: >-
-        Research a change end to end, plan it to a written acceptance list, then
-        implement it locally. Never commits, pushes, or opens a PR.
-      argument-hint: "<target-path> <issue-or-goal> [related-paths...]"
-      allowed-tools:
-        - Read
-        - Glob
-        - Grep
-        - Edit
-        - Write
-        - Bash
-        - WebSearch
-        - WebFetch

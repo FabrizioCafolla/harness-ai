@@ -1,5 +1,5 @@
-# Agent catalog for the bundled `default` source: per-tool frontmatter for every
-# agent file under content/agents/, which carry no frontmatter of their own.
+# Agent catalog for the bundled `harness-ai` source: per-tool frontmatter for
+# every agent file under content/agents/, which carry no frontmatter of their own.
 
 default:
   opencode:
@@ -7,27 +7,7 @@ default:
   # Minimal on purpose (name/description only, no license/metadata.author) —
   # per-entry `agents:` blocks are optional: when absent, the `agents`
   # profile falls back to the claude/opencode block's name+description
-  # (see harness.py's `_tool_meta_for`). See design.md D4.
+  # (see harness.py's `_tool_meta_for`).
   agents:
 
-agents:
-  developer:
-    opencode:
-      name: Developer
-      description: >-
-        This custom agent is responsible for implementing code changes based on
-        user requirements. It follows a structured workflow to ensure
-        high-quality code that meets specifications and passes all tests before
-        completion.
-      mode: subagent
-    claude:
-      name: Developer
-      description: >-
-        This custom agent is responsible for implementing code changes based on
-        user requirements. It follows a structured workflow to ensure
-        high-quality code that meets specifications and passes all tests before
-        completion.
-      allowedTools:
-        - Read
-        - Edit
-        - Bash
+agents: {}
