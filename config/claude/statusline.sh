@@ -70,17 +70,11 @@ fi
 
 # Caveman: the transcript's on-disk schema is internal to Claude Code and can
 # change between releases (undocumented — see code.claude.com/docs/en/sessions),
-# and the skill itself writes no state file when it toggles on/off. There is no
-# reliable way to detect real-time on/off state from a statusline hook, so this
-# shows "installed" (dim) vs "installed and defaults to active" (green) rather
-# than attempting to track the actual per-turn toggle.
+# and the skill itself writes no state file when it toggles on/off. There is
+# no reliable way to detect real-time on/off state from a statusline hook, so
+# this only shows whether the skill is installed, not whether it's active.
 if [[ -d "${HOME}/.claude/skills/caveman" || -d "${proj_dir}/.claude/skills/caveman" ]]; then
-  cave_state="${DIM}🪨caveman${RESET}"
-  if [[ -f "${proj_dir}/.harness-ai/config.yaml" ]] \
-    && grep -qE '^\s*caveman:\s*true' "${proj_dir}/.harness-ai/config.yaml" 2>/dev/null; then
-    cave_state="${GREEN}🪨caveman${RESET}"
-  fi
-  tools+=" ${cave_state}"
+  tools+=" ${DIM}🪨caveman${RESET}"
 fi
 
 [[ -n "$tools" ]] && line1+=" ${DIM}|${RESET}${tools}"

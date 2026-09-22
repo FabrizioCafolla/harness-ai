@@ -139,7 +139,7 @@ Every CLI flag has an equivalent key in `.harness-ai/config.yaml` (see [Configur
 bash harness-ai.sh install --interactive
 ```
 
-Prompts for each setting (tools, install toggles, caveman default, content repo). Flags passed before `--interactive` set the defaults shown in the prompts. `.harness-ai/config.yaml`, if present, still wins over whatever you answer.
+Prompts for each setting (tools, install toggles, content repo). Flags passed before `--interactive` set the defaults shown in the prompts. `.harness-ai/config.yaml`, if present, still wins over whatever you answer.
 
 ---
 
@@ -165,9 +165,10 @@ scaffold:
   createFileSetting: true
   updateGitignore: true
   installDefaults: true
-behavior:
-  caveman: true
 contentRepos: []
+skillPaths: []
+agentPaths: []
+commandPaths: []
 skills:
   include:
     categories: []
@@ -177,9 +178,9 @@ skills:
     keys: []
 ```
 
-Edit it directly to change tools, toggle an install, flip a behavior default, or point at one or more content repos. No rebuild needed — just run `harnessai install` (or wait for the next `harnessai sync`).
+Edit it directly to change tools, toggle an install, or point at one or more content repos / path-fetched entries. No rebuild needed — just run `harnessai install` (or wait for the next `harnessai sync`).
 
-**Skill selection** (`skills.include`/`skills.exclude`, or the matching `--skills-include-categories`/`--skills-include-keys`/`--skills-exclude-categories`/`--skills-exclude-keys` flags): filters which `default`/content-repo/`workspace` skills get installed, by category, `category.subcategory`, or explicit key. Empty `include` means "install everything" (today's default). `exclude` is checked after `include`, so it can carve one key out of an otherwise-included category. Agents are never filtered this way. `local` skills aren't gated by `include`/category rules at all (they're always installed if present) — only `exclude.keys` can remove one by name. See the [Skill taxonomy](#skill-taxonomy) table below for valid category/subcategory values.
+**Skill selection** (`skills.include`/`skills.exclude`, or the matching `--skills-include-categories`/`--skills-include-keys`/`--skills-exclude-categories`/`--skills-exclude-keys` flags): filters which `harness-ai`/content-repo/`workspace` skills get installed, by category, `category.subcategory`, or explicit key. Empty `include` means "install everything" (today's default). `exclude` is checked after `include`, so it can carve one key out of an otherwise-included category. Agents are never filtered this way. `local` skills aren't gated by `include`/category rules at all (they're always installed if present) — only `exclude.keys` can remove one by name. See the [Skill taxonomy](#skill-taxonomy) table below for valid category/subcategory values.
 
 `.harness-ai/lock` and `.harness-ai/manifest.json` live alongside `config.yaml` in the same directory — only `config.yaml` is tracked in git; the other two are harness-ai's own state and are gitignored.
 
@@ -187,8 +188,8 @@ Edit it directly to change tools, toggle an install, flip a behavior default, or
 
 ## Usability extras
 
-- **Statusline** (Claude Code only — `.claude/statusline.sh` + `statusLine` in the `settings.json` template, scaffolded when `claude` is in `tools`): model, directory, git branch, context window % with color-coded bar, token counts, session cost (API billing only — hidden on Pro/Max plans where `rate_limits` is present), lines added/removed, 5-hour rate limit, and token-saving tool indicators (`⚡rtk` / `🪨caveman`, green = active, dim = installed). The caveman indicator reads `.harness-ai/config.yaml`'s `behavior.caveman` value directly rather than parsing the session transcript (that schema is undocumented and unstable across Claude Code releases) — it shows the configured default, not necessarily the exact current-turn state. Requires `jq` in the container; degrades to a minimal line without it. Skipped if the workspace already has `.claude/statusline.sh` / `settings.json`.
-- **Caveman skill, default-on** ([upstream](https://github.com/JuliusBrussee/caveman)): bundled in the default skills, deployed to every active tool's skills dir (`.claude/skills/caveman`, `.opencode/skills/caveman`). Compresses the model's prose replies (~65% of output tokens). When `behavior.caveman: true` (the default) and the skill is installed, harness-ai injects an instruction into the AGENTS.md managed block — read natively by both Claude Code and OpenCode — so caveman mode applies from the first message of every session, no `/caveman` invocation needed. Turn it off for a session with "stop caveman", or disable the default entirely with `behavior.caveman: false`. Refresh the bundled copy from upstream with `just update-skills caveman`.
+- **Statusline** (Claude Code only — `.claude/statusline.sh` + `statusLine` in the `settings.json` template, scaffolded when `claude` is in `tools`): model, directory, git branch, context window % with color-coded bar, token counts, session cost (API billing only — hidden on Pro/Max plans where `rate_limits` is present), lines added/removed, 5-hour rate limit, and token-saving tool indicators (`⚡rtk`, and `🪨caveman` when that skill is installed — dim, since there's no reliable way to read its real-time on/off state from a statusline hook). Requires `jq` in the container; degrades to a minimal line without it. Skipped if the workspace already has `.claude/statusline.sh` / `settings.json`.
+- **`CLAUDE.md`**: Claude Code reads `CLAUDE.md`, not `AGENTS.md`. When `claude` is an active tool, harness-ai symlinks `CLAUDE.md` to the scaffolded `AGENTS.md` after every run, so the managed instructions reach it too.
 - **RTK** (`install.rtk` / `--no-rtk`, on by default): installs the binary; for Claude Code, injects the `PreToolUse` hook into the Claude hooks template so every scaffold run merges it into `.claude/settings.json`; for OpenCode, drops a static plugin (`.opencode/plugins/rtk.ts`, vendored from [rtk-ai/rtk](https://github.com/rtk-ai/rtk)) that self-disables at runtime if the `rtk` binary isn't on PATH. Bash commands are then transparently rewritten to token-compressed `rtk` equivalents (60-90% savings on `git status`, test runners, `find`, …). Check savings with `rtk gain`.
 - **Headroom** (`install.headroom` / `--no-headroom`, on by default): installs the CLI via `uv tool install "headroom-ai[proxy]"` (requires `uv`; warns and continues if missing). Compresses the request payload at the API boundary — a different layer than RTK. Not a hook and **not auto-active**: activate per-session with `headroom wrap <cli>` (e.g. `headroom wrap claude`, `headroom wrap opencode`). Overlaps RTK on the input side while active, so prefer one over the other rather than stacking both.
 - **openspec** (`install.openspec` / `--no-openspec`, on by default): installs the [`@fission-ai/openspec`](https://www.npmjs.com/package/@fission-ai/openspec) CLI via `npm install -g`. Skipped with a warning if `npm` isn't on PATH; never fails the rest of the install.
@@ -204,7 +205,7 @@ Off by default. Enabling it (`install.wikictl: true` in `.harness-ai/config.yaml
 - **CLI** — installed via `uv tool install` from the fetched checkout (requires `uv`; warns and continues if missing). Provides `wikictl create|read|list|search|tags|edit|move|delete|schema|index|serve`.
 - **MCP server** — a gated `wikictl` entry (`http://127.0.0.1:9797/mcp/`, started by `wikictl serve`) merged into `.mcp.json` (Claude Code) and, when `opencode` is in `tools`, into `opencode.json`'s `mcp` key. The server encodes a metadata-first protocol and exposes `get_schema` (the entry metadata contract).
 
-The `wikictl-*` skills deploy unconditionally alongside the other default skills, regardless of whether wikictl itself is enabled.
+The `wikictl` skill deploys unconditionally alongside the other bundled skills, regardless of whether wikictl itself is enabled.
 
 ```yaml
 install:
@@ -215,7 +216,7 @@ install:
 
 ## Content repos
 
-Point at one or more GitHub repos that follow the `content/` structure to merge additional (or private) agents and skills on top of the bundled defaults. Each is a named **source** — see [Sources and the canonical store](#sources-and-the-canonical-store) for how they're materialized into the workspace.
+Point at one or more GitHub repos that follow the `content/` structure to merge additional (or private) agents and skills on top of the bundled `harness-ai` source. Each is a named **source** — see [Sources and the canonical store](#sources-and-the-canonical-store) for how they're materialized into the workspace. A content repo can also ship its own `config.yaml` — install commands and `skillPaths`/`agentPaths`/`commandPaths` entries that merge into the workspace's own automatically — see [harness-ai's AGENTS.md](https://github.com/FabrizioCafolla/harness-ai/blob/main/AGENTS.md#configyaml-a-content-repos-own-config).
 
 ### Layout
 
@@ -242,7 +243,7 @@ your-content-repo/
 └── agents.harness-ai.md  # optional: extra content appended to the AGENTS.md managed block
 ```
 
-You can include any subset anything absent falls back to bundled defaults (unless `installDefaults: false` / `--no-defaults`). Hooks and MCP overrides are full replacements, not merges. On a same-key collision, later sources win: `default` → `contentRepos` in the order listed → `workspace` (an auto-detected `.harness-ai/local/`, see [below](#workspace-local-content)) → `local` (further below) always last.
+You can include any subset anything absent falls back to bundled defaults (unless `installDefaults: false` / `--no-defaults`). Hooks and MCP overrides are full replacements, not merges. On a same-key collision, later sources win: `harness-ai` → `frompaths` → `contentRepos` in the order listed → `workspace` (an auto-detected `.harness-ai/local/`, see [below](#workspace-local-content)) → `local` (further below) always last.
 
 ### Using it
 
@@ -258,7 +259,7 @@ contentRepos:
     ref: main
 ```
 
-`name` is required and must be unique — it's the subfolder under the canonical store (`.harness-ai/skills/<name>/`) and the label used in the sync report. `default`, `workspace`, and `local` are reserved (harness-ai rejects a config that reuses them).
+`name` is required and must be unique — it's the subfolder under the canonical store (`.harness-ai/skills/<name>/`) and the label used in the sync report. `harness-ai`, `frompaths`, `workspace`, and `local` are reserved (harness-ai rejects a config that reuses them).
 
 **Migrating from the old singular key:** `contentRepo: {url, ref}` still works — it's read as sugar for a one-entry `contentRepos` list (name derived from the URL) and prints a deprecation warning. No action needed on upgrade; switch to `contentRepos` whenever convenient.
 
@@ -295,10 +296,10 @@ A **`workspace`** source is auto-detected from `.harness-ai/local/` in the targe
 │   ├── metadata.yml
 │   └── my-skill/
 │       └── SKILL.md
-└── paths.yml   # optional — falls back to `default`'s if omitted
+└── paths.yml   # optional — falls back to `harness-ai`'s if omitted
 ```
 
-Full category/subcategory support and `skills.include`/`skills.exclude` filtering apply exactly as for `default`/`contentRepos`. On a same-key collision, `workspace` wins over `default` and every `contentRepos` entry (it's last in load order) but still loses to a real `local` (`.harness-ai/skills/local/`) file, which always wins over everything.
+Full category/subcategory support and `skills.include`/`skills.exclude` filtering apply exactly as for `harness-ai`/`contentRepos`. On a same-key collision, `workspace` wins over `harness-ai` and every `contentRepos` entry (it's last in load order) but still loses to a real `local` (`.harness-ai/skills/local/`) file, which always wins over everything.
 
 Use `workspace` for project-specific overrides that want the full repo-shaped format (categories, per-tool profiles); use [`local`](#local-skills) for a quick, no-ceremony single file. They're not mutually exclusive — a workspace can use both.
 
@@ -306,38 +307,42 @@ Delete `.harness-ai/local/` and re-sync to remove the source cleanly; nothing sp
 
 ---
 
-## Skill paths
+## Skill, agent and command paths
 
-Take a single skill straight from a directory inside someone else's repo, without vendoring it or adding the whole repo as a content source:
+Take a single skill, agent, or command straight from a path inside someone else's repo, without vendoring it or adding the whole repo as a content source — materialized as the `frompaths` source:
 
 ```yaml
 skillPaths:
   - url: https://github.com/mattpocock/skills/tree/main/skills/productivity/grill-me
+agentPaths:
+  - url: https://github.com/my-org/ai-content/blob/main/agents/reviewer.md
+commandPaths:
+  - url: https://github.com/my-org/ai-content/blob/main/commands/deploy/rollback.md
 ```
 
 The ref and the sub-path are read out of the GitHub URL, so that is usually the whole entry. Three optional fields cover the rest:
 
 | field | when you need it |
 | --- | --- |
-| `name` | install the skill under a different key than the directory name |
+| `name` | install under a different key than the directory/file name |
 | `ref` | pin a branch or tag other than the one in the URL (an explicit `ref` always wins) |
-| `path` | point inside a remote whose URL has no `/tree/` part (a self-hosted git host, a `file://` checkout) |
+| `path` | point inside a remote whose URL has no `/tree/`/`/blob/` part (a self-hosted git host, a `file://` checkout) |
 
-**One skill or many.** A path holding a `SKILL.md` is a single skill. A path that doesn't is treated as a folder of skills, and every immediate sub-directory holding a `SKILL.md` is installed under its own name.
+**`skillPaths`: one skill or many.** A path holding a `SKILL.md` is a single skill. A path that doesn't is treated as a folder of skills, and every immediate sub-directory holding a `SKILL.md` is installed under its own name. The whole directory travels — examples, `scripts/`, `agents/`, `references/`: whatever the skill ships beside `SKILL.md` comes with it, because a skill whose instructions point at its own files is broken without them.
 
-**The whole directory travels.** Examples, `scripts/`, `agents/`, `references/`: whatever the skill ships beside `SKILL.md` comes with it, because a skill whose instructions point at its own files is broken without them.
+**`agentPaths`/`commandPaths`: a single file.** The sub-path is either the target Markdown file itself, or a directory holding exactly one — ambiguous directories (more than one `.md`) are skipped with a warning asking for an explicit `path`.
 
-Frontmatter is read from the file itself (third-party skills carry it inline, unlike a content repo's `metadata.yml`) and passed through verbatim, extra keys included. Nothing of ours is stamped on top: harness-ai's bundled `license`/`author` defaults are deliberately not applied to a skill someone else wrote.
+Frontmatter is read from the file itself (third-party content carries it inline, unlike a content repo's `metadata.yml`) and passed through verbatim, extra keys included. Nothing of ours is stamped on top: harness-ai's bundled `license`/`author` defaults are deliberately not applied to content someone else wrote.
 
-**Precedence.** `skillPaths` sits above the bundled defaults and below `contentRepos`: a repo you curate always outranks a skill pulled from elsewhere, and `local` still wins over everything. Fetching uses a sparse checkout of just that sub-path, and `sync`'s fast path tracks each entry's remote SHA with `git ls-remote`, so an upstream change is picked up without cloning to find out.
+**Precedence.** `frompaths` sits above the bundled `harness-ai` source and below `contentRepos`: a repo you curate always outranks something pulled from elsewhere, and `local` still wins over everything. Fetching uses a sparse checkout of just that sub-path, and `sync`'s fast path tracks each entry's remote SHA with `git ls-remote`, so an upstream change is picked up without cloning to find out — a content repo's own `skillPaths`/`agentPaths`/`commandPaths` entries (via its `config.yaml`) aren't knowable without cloning it first, so they're outside this fast path and only picked up on a full run.
 
 ---
 
 ## Commands
 
 Commands are slash commands (`/deploy:rollback`) and ship through the same pipeline as skills and
-agents: `default` -> `contentRepos` -> `workspace` -> `local`, later sources winning an identical
-key, foreign content never overwritten.
+agents: `harness-ai` -> `frompaths` -> `contentRepos` -> `workspace` -> `local`, later sources
+winning an identical key, foreign content never overwritten.
 
 The one thing specific to commands is the key. A command is **addressed by its path**, so the key
 *is* the path under `commands/`, without the `.md`, namespace directories included:
@@ -396,9 +401,9 @@ A **`local`** source formalizes hand-authoring a skill or agent directly in the 
         └── my-command.md   # frontmatter inline  ->  /ns:my-command
 ```
 
-Unlike `default`/content-repo/`workspace` skills, a `local` file's frontmatter lives directly in the file (the way Claude Code's own Skill/Agent authoring tools write them) — there's no `metadata.yml` and no per-tool rendering step. harness-ai discovers every `SKILL.md`/`<key>.md` under `.harness-ai/skills/local/`/`.harness-ai/agents/local/` on each run and symlinks its whole skill directory (or the agent file) into every active tool's directory, `.agents/skills/<key>` included — `local` renders through the exact same canonical-store-plus-symlink path every other source uses, with no tool-specific exception. It's the one source harness-ai **never deletes or rewrites at its canonical location** — only a dangling tool-dir symlink whose local file disappeared gets cleaned up; the authored file itself is always yours.
+Unlike `harness-ai`/content-repo/`workspace` skills, a `local` file's frontmatter lives directly in the file (the way Claude Code's own Skill/Agent authoring tools write them) — there's no `metadata.yml` and no per-tool rendering step. harness-ai discovers every `SKILL.md`/`<key>.md` under `.harness-ai/skills/local/`/`.harness-ai/agents/local/` on each run and symlinks its whole skill directory (or the agent file) into every active tool's directory, `.agents/skills/<key>` included — `local` renders through the exact same canonical-store-plus-symlink path every other source uses, with no tool-specific exception. It's the one source harness-ai **never deletes or rewrites at its canonical location** — only a dangling tool-dir symlink whose local file disappeared gets cleaned up; the authored file itself is always yours.
 
-`local` always wins on a same-key collision with `default`/content-repo/`workspace` sources — a workspace can deliberately override a bundled, repo, or `workspace` skill by authoring the same key locally.
+`local` always wins on a same-key collision with `harness-ai`/content-repo/`workspace` sources — a workspace can deliberately override a bundled, repo, or `workspace` skill by authoring the same key locally.
 
 Category/subcategory filtering (below) doesn't apply to `local` skills (they carry no metadata for it) — `skills.exclude.keys` can still remove one by name.
 
@@ -417,8 +422,8 @@ Do this for every `local` key, then run `harnessai sync --force`. Skipping the m
 
 Three shapes, combinable:
 
-- **Public / bundled-only** — no `contentRepos`. Just the bundled `content/` (developer/advisor skills, taxonomy) plus whatever `local` skills the workspace authors itself. The default for a new workspace.
-- **Private content repo(s)** — one or more `contentRepos` entries pointing at a private (or public) repo with your own/your team's skills and agents, merged on top of the bundled defaults. Set `GITHUB_TOKEN` for private repos.
+- **Public / bundled-only** — no `contentRepos`. Just the bundled `content/` (currently just `wikictl`) plus whatever `local` skills the workspace authors itself. The default for a new workspace.
+- **Private content repo(s)** — one or more `contentRepos` entries pointing at a private (or public) repo with your own/your team's skills and agents, merged on top of the bundled `harness-ai` source. Set `GITHUB_TOKEN` for private repos.
 - **Workspace-only `workspace` content** — a `.harness-ai/local/` directory, repo-shaped but never published anywhere; auto-detected, no config entry.
 - **Workspace-only `local` skills** — no content repo at all, just hand-authored `.harness-ai/skills/local/<key>/SKILL.md` files. Useful for skills that are specific to one project and not worth publishing anywhere.
 
@@ -426,7 +431,7 @@ Most real setups combine several of these: bundled defaults + a team's private r
 
 ## Sources and the canonical store
 
-Every source — `default`, each `contentRepos` entry, `workspace`, and `local` — has a canonical store under `.harness-ai/`, tracked in git:
+Every source — `harness-ai`, `frompaths`, each `contentRepos` entry, `workspace`, and `local` — has a canonical store under `.harness-ai/`, tracked in git:
 
 ```
 .harness-ai/
@@ -489,7 +494,7 @@ Plain, single-word subcategories on purpose — grouping follows what a skill ac
 | `reasoning`     | `brainstorming` | `advisor-*`                              |
 | `reasoning`     | `research`      | `advisor-*`, `research-scout`            |
 | `reasoning`     | `speaking`      | `advisor-*`                              |
-| `tools`         | `cli`           | `developer-github-cli`, `wikictl-*`      |
+| `tools`         | `cli`           | `developer-github-cli`, `wikictl`        |
 | `meta`          | `creation`      | `skill-creator`, `agent-creator`         |
 | `meta`          | `review`        | `advisor-work-review`                    |
 | `coaching`      | `planning`      | `advisor-*` (private, personal-training) |

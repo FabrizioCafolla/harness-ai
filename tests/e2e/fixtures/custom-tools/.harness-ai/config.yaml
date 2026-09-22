@@ -1,7 +1,7 @@
 # custom-tools fixture: proves the install.custom delimited-blob round-trip
 # (cli.sh's _read_config emitter -> _load_config consumer -> _seed_starter_config's
 # fd-3 stdin decode) with a multi-entry map, including one failing command to
-# verify warn-and-continue — see design.md's D2 risk mitigation.
+# verify warn-and-continue.
 install:
   rtk: false
   headroom: false

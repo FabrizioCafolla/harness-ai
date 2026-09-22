@@ -1,7 +1,7 @@
 # multi-content-repo fixture: two named contentRepos entries. run.sh
 # overrides both via repeated --content-repo-local-path NAME=DIR flags
 # (no network needed) — proves N sources merge into the same workspace,
-# each in its own canonical-store subfolder (design.md D2).
+# each in its own canonical-store subfolder.
 contentRepos:
   - name: repo-a
     url: https://example.invalid/repo-a.git
@@ -11,9 +11,9 @@ contentRepos:
     ref: main
 # installDefaults stays true (not false): paths.yml — which tells harness.py
 # where to write claude/opencode/agents output — is only ever supplied by a
-# source that defines it (bundled `default`, or a repo's own paths.yml
-# override). Neither mock repo below ships one, so `default` must stay on to
-# supply it; the assertions only care about the two repos' own skills.
+# source that defines it (bundled `harness-ai`, or a repo's own paths.yml
+# override). Neither mock repo below ships one, so `harness-ai` must stay on
+# to supply it; the assertions only care about the two repos' own skills.
 scaffold:
   installDefaults: true
   createFileMCP: false

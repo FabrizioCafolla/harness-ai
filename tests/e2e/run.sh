@@ -95,11 +95,13 @@ else
     assert_file_exists "${ws}/.harness-ai/config.yaml" "starter config.yaml seeded"
     assert_yaml_eq "${ws}/.harness-ai/config.yaml" "cfg['tools']" "['claude']" "seeded tools == CLI default [claude]"
     assert_yaml_eq "${ws}/.harness-ai/config.yaml" "cfg['install']['wikictl']" "False" "seeded install.wikictl == CLI default false"
-    assert_yaml_eq "${ws}/.harness-ai/config.yaml" "cfg['behavior']['caveman']" "True" "seeded behavior.caveman == CLI default true"
-    assert_file_exists "${ws}/.claude/skills/caveman/SKILL.md" "caveman skill installed (bundled default)"
-    assert_contains "${ws}/AGENTS.md" "Default communication mode: caveman" "AGENTS.md has caveman-default instruction (behavior.caveman true)"
+    assert_file_exists "${ws}/.claude/skills/wikictl/SKILL.md" "wikictl skill installed (bundled harness-ai source)"
     assert_not_contains "${ws}/.mcp.json" "wikictl" "no wikictl MCP entry (install.wikictl false)"
     assert_file_absent "${ws}/.opencode" "no opencode output (opencode not in tools)"
+    assert_file_exists "${ws}/CLAUDE.md" "CLAUDE.md scaffolded (claude in tools)"
+    [[ -L "${ws}/CLAUDE.md" && "$(readlink "${ws}/CLAUDE.md")" == "AGENTS.md" ]] \
+        && pass "CLAUDE.md is a symlink to AGENTS.md" \
+        || fail "CLAUDE.md is not a symlink to AGENTS.md"
 fi
 
 echo ""
@@ -121,9 +123,7 @@ else
     assert_contains "${ws}/.mcp.json" "wikictl" "wikictl MCP entry present (install.wikictl true, no --wikictl flag passed)"
     assert_contains "${ws}/opencode.json" "wikictl" "wikictl MCP entry present in opencode.json (install.wikictl true, opencode in tools)"
     assert_not_contains "${ws}/.claude/settings.json" "rtk hook claude" "RTK hook NOT merged (install.rtk false)"
-    assert_not_contains "${ws}/AGENTS.md" "Default communication mode: caveman" "no caveman-default instruction (behavior.caveman false)"
-    assert_file_absent "${ws}/.claude/skills/caveman" "caveman skill excluded (skills.exclude.keys: [caveman])"
-    assert_file_exists "${ws}/.claude/skills/skill-creator/SKILL.md" "skill-creator still installed (installDefaults true, not excluded)"
+    assert_file_absent "${ws}/.claude/skills/wikictl" "wikictl skill excluded (skills.exclude.keys: [wikictl])"
 fi
 
 echo ""
@@ -138,7 +138,6 @@ else
     assert_file_absent "${ws}/.opencode" "opencode NOT scaffolded (tools not set in fixture -> CLI default claude-only)"
     assert_contains "${ws}/.mcp.json" "wikictl" "wikictl MCP entry present (the one key the fixture does set)"
     assert_contains "${ws}/.claude/settings.json" "rtk hook claude" "RTK hook merged (install.rtk not set in fixture -> CLI default true)"
-    assert_contains "${ws}/AGENTS.md" "Default communication mode: caveman" "caveman-default instruction present (behavior.caveman not set -> CLI default true)"
 fi
 
 echo ""
@@ -178,7 +177,7 @@ else
     pass "cli.sh install succeeded with the legacy singular contentRepo key"
 fi
 assert_contains "${ws}.log" "deprecated" "deprecation warning printed for the singular contentRepo key"
-assert_file_exists "${ws}/.claude/skills/caveman/SKILL.md" "bundled default skills still materialize correctly"
+assert_file_exists "${ws}/.claude/skills/wikictl/SKILL.md" "bundled harness-ai skills still materialize correctly"
 
 echo ""
 echo "=== multi-content-repo: N named contentRepos merge into separate canonical-store subfolders ==="
@@ -305,6 +304,83 @@ else
     assert_file_exists "${ws}/.claude/skills/beta/SKILL.md" "folder entry expanded into each skill it contains"
     assert_file_exists "${ws}/.claude/skills/beta/examples/sample.md" "the skill's own subfolder travelled with it"
 fi
+
+echo ""
+echo "=== agentPaths/commandPaths: fetch a single agent/command file from a path inside another repo ==="
+ws=$(fresh_scratch "agent-command-paths")
+src_repo="${SCRATCH_ROOT}/agent-command-source"
+rm -rf "${src_repo}"
+mkdir -p "${src_repo}/agents" "${src_repo}/commands/ns"
+printf -- '---\nname: reviewer\ndescription: Reviews things.\n---\n\nReviewer body.\n' >"${src_repo}/agents/reviewer.md"
+printf -- '---\nname: rollback\ndescription: Rolls back a deploy.\n---\n\nRollback body.\n' >"${src_repo}/commands/ns/rollback.md"
+git -C "${src_repo}" init -q -b main
+git -C "${src_repo}" -c user.email=t@t -c user.name=t add -A
+git -C "${src_repo}" -c user.email=t@t -c user.name=t commit -qm init
+
+mkdir -p "${ws}/.harness-ai"
+cat >"${ws}/.harness-ai/config.yaml" <<EOF
+version: 1
+tools: [claude]
+install: { rtk: false, headroom: false, wikictl: false, openspec: false }
+agentPaths:
+  - url: file://${src_repo}
+    path: agents/reviewer.md
+commandPaths:
+  - name: ns/rollback
+    url: file://${src_repo}
+    path: commands/ns/rollback.md
+EOF
+bash "${REPO_DIR}/cli.sh" install --local-path "${REPO_DIR}" --workspace "${ws}" >"${ws}.log" 2>&1
+rc=$?
+if [[ ${rc} -ne 0 ]]; then
+    fail "cli.sh install exited ${rc} (see ${ws}.log)"
+else
+    assert_file_exists "${ws}/.claude/agents/reviewer.md" "agentPaths entry resolved from its sub-path"
+    assert_file_exists "${ws}/.claude/commands/ns/rollback.md" "commandPaths entry resolved with its namespaced key"
+fi
+
+echo ""
+echo "=== content-repo config.yaml: its own skillPaths merge automatically, root config still wins ties ==="
+ws=$(fresh_scratch "content-repo-paths")
+src_repo="${SCRATCH_ROOT}/content-repo-paths-skill-source"
+repo_dir="${SCRATCH_ROOT}/content-repo-paths-repo"
+rm -rf "${src_repo}" "${repo_dir}"
+mkdir -p "${src_repo}/gamma"
+printf -- '---\nname: gamma\ndescription: From a repo-declared skillPaths entry.\n---\n\nGamma body.\n' >"${src_repo}/gamma/SKILL.md"
+git -C "${src_repo}" init -q -b main
+git -C "${src_repo}" -c user.email=t@t -c user.name=t add -A
+git -C "${src_repo}" -c user.email=t@t -c user.name=t commit -qm init
+
+mkdir -p "${repo_dir}/skills/repo-own-skill"
+printf 'default:\n  claude:\n\nskills:\n  repo-own-skill:\n    category: engineering\n    subcategory: coding\n    claude:\n      name: repo-own-skill\n      description: Ships with the content repo itself.\n' \
+    > "${repo_dir}/skills/metadata.yml"
+printf '# Repo-own skill\nBody.' > "${repo_dir}/skills/repo-own-skill/SKILL.md"
+cat >"${repo_dir}/config.yaml" <<EOF
+skillPaths:
+  - url: file://${src_repo}
+    path: gamma
+EOF
+
+mkdir -p "${ws}/.harness-ai"
+cat >"${ws}/.harness-ai/config.yaml" <<EOF
+version: 1
+tools: [claude]
+install: { rtk: false, headroom: false, wikictl: false, openspec: false }
+contentRepos:
+  - name: repo-with-own-paths
+    url: unused
+EOF
+bash "${REPO_DIR}/cli.sh" install --local-path "${REPO_DIR}" --workspace "${ws}" \
+    --content-repo-local-path "repo-with-own-paths=${repo_dir}" \
+    >"${ws}.log" 2>&1
+rc=$?
+if [[ ${rc} -ne 0 ]]; then
+    fail "cli.sh install exited ${rc} (see ${ws}.log)"
+else
+    assert_file_exists "${ws}/.claude/skills/repo-own-skill/SKILL.md" "content repo's own skill still installs"
+    assert_file_exists "${ws}/.claude/skills/gamma/SKILL.md" "content repo's own config.yaml skillPaths entry merged and fetched"
+fi
+rm -rf "${src_repo}" "${repo_dir}"
 
 echo ""
 echo "=== Results: ${PASS} passed, ${FAIL} failed ==="
